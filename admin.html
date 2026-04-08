@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Panel</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #6b73ff 0%, #000dff 100%);
+    display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;
+    color: #fff;
+  }
+  .container {
+    background: rgba(255,255,255,0.95); color: #333; border-radius: 12px;
+    padding: 2rem; box-shadow: 0 8px 20px rgba(0,0,0,0.3); width: 360px; text-align: center;
+  }
+  h2 { margin-bottom: 1rem; }
+  input[type="password"] {
+    width: 100%; padding: 0.5rem; margin-bottom: 1rem; border-radius: 6px;
+    border: 1px solid #ccc; font-size: 1rem;
+  }
+  button {
+    padding: 0.6rem 1.2rem; border: none; border-radius: 6px; font-size: 1rem;
+    background: #4caf50; color: white; cursor: pointer; transition: 0.2s;
+  }
+  button:hover { background: #45a049; }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+  #status { margin-top: 1rem; font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>Admin Panel</h2>
+  <div id="loginDiv">
+    <input type="password" id="tokenInput" placeholder="Enter admin token" />
+    <button id="loginBtn">Login</button>
+  </div>
+  <div id="panel" style="display:none;">
+    <button id="refreshBtn">Refresh Latest Version</button>
+    <div id="status"></div>
+  </div>
+</div>
+<script>
+  const loginBtn = document.getElementById('loginBtn');
+  const tokenInput = document.getElementById('tokenInput');
+  const loginDiv = document.getElementById('loginDiv');
+  const panel = document.getElementById('panel');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const status = document.getElementById('status');
+
+  loginBtn.onclick = async () => {
+    const token = tokenInput.value.trim();
+    if (!token) return;
+    try {
+      const res = await fetch(`/admin/verify?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (data.success) {
+        loginDiv.style.display = 'none';
+        panel.style.display = 'block';
+        status.textContent = 'Logged in';
+      } else {
+        status.textContent = 'Invalid token or rate limited';
+      }
+    } catch {
+      status.textContent = 'Error verifying token';
+    }
+  };
+
+  refreshBtn.onclick = async () => {
+    refreshBtn.disabled = true;
+    status.textContent = 'Refreshing...';
+    try {
+      const res = await fetch(`/admin/refresh?token=${encodeURIComponent(tokenInput.value.trim())}`);
+      const text = await res.text();
+      status.textContent = text;
+    } catch {
+      status.textContent = 'Error refreshing';
+    }
+    refreshBtn.disabled = false;
+  };
+</script>
+</body>
+</html>
