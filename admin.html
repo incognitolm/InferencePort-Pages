@@ -69,6 +69,15 @@
 
   let token = '';
 
+  // Determine mode based on hostname
+  const hostname = window.location.hostname;
+  const requiresConfirmation = hostname === 'incognitolm-chat.hf.space';
+
+  // Hide confirm button if not required
+  if (!requiresConfirmation) {
+    confirmBtn.style.display = 'none';
+  }
+
   loginBtn.onclick = async () => {
     token = tokenInput.value.trim();
     if (!token) return;
@@ -87,14 +96,9 @@
     }
   };
 
-  refreshBtn.onclick = () => {
-    confirmBtn.classList.add('show');
-    status.textContent = 'Click confirm to proceed';
-  };
-
-  confirmBtn.onclick = async () => {
-    confirmBtn.disabled = true;
+  const performRefresh = async () => {
     refreshBtn.disabled = true;
+    if (requiresConfirmation) confirmBtn.disabled = true;
     status.textContent = 'Refreshing...';
     try {
       const res = await fetch(`/admin/refresh?token=${encodeURIComponent(token)}`);
@@ -103,10 +107,23 @@
     } catch {
       status.textContent = 'Error refreshing';
     }
-    confirmBtn.disabled = false;
     refreshBtn.disabled = false;
-    confirmBtn.classList.remove('show');
+    if (requiresConfirmation) {
+      confirmBtn.disabled = false;
+      confirmBtn.classList.remove('show');
+    }
   };
+
+  if (requiresConfirmation) {
+    refreshBtn.onclick = () => {
+      confirmBtn.classList.add('show');
+      status.textContent = 'Click confirm to proceed';
+    };
+    confirmBtn.onclick = performRefresh;
+  } else {
+    // Direct refresh for dev environment
+    refreshBtn.onclick = performRefresh;
+  }
 </script>
 </body>
 </html>
