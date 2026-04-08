@@ -1,7 +1,7 @@
 // modals.js — All modal dialogs
-import { send, on } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
-import { escHtml } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js';
-import { isAuthenticated, loginWithEmail, signUpWithEmail, loginWithOAuth, logout, currentUser, userProfile, userSettings } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/auth.js';
+import { send, on } from './ws.js';
+import { escHtml } from './ui.js';
+import { isAuthenticated, loginWithEmail, signUpWithEmail, loginWithOAuth, logout, currentUser, userProfile, userSettings } from './auth.js';
 
 // ── Modal stack support ───────────────────────────────────────────────────
 // Primary modal uses #modal-overlay / #modal-box.
@@ -258,7 +258,7 @@ export function showShareModal(sessionId) {
 
         on('sessions:shareUrl', function handler(msg) {
           if (msg.sessionId !== sessionId) return;
-          import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js').then(({ off }) => off('sessions:shareUrl', handler));
+          import('./ws.js').then(({ off }) => off('sessions:shareUrl', handler));
           b.querySelector('#share-loading').style.display = 'none';
           b.querySelector('#share-url-wrap').style.display = '';
           const input = b.querySelector('#share-url-input');

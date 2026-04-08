@@ -1,7 +1,7 @@
 // sessions.js - Session list management
-import { send, on } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
-import { showContextMenu } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js';
-import { showShareModal } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js';
+import { send, on } from './ws.js';
+import { showContextMenu } from './ui.js';
+import { showShareModal } from './modals.js';
 
 export let sessions = [];
 export let currentSessionId = null;

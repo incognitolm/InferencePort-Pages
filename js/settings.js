@@ -1,9 +1,9 @@
 // settings.js — Settings modal
-import { send, on, off } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
-import { openModal, closeModal, openDeviceSessionModal } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js';
-import { isAuthenticated, currentUser, userProfile, userSettings } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/auth.js';
-import { deleteAllSessions } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/sessions.js';
-import { escHtml, showNotification } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js';
+import { send, on, off } from './ws.js';
+import { openModal, closeModal, openDeviceSessionModal } from './modals.js';
+import { isAuthenticated, currentUser, userProfile, userSettings } from './auth.js';
+import { deleteAllSessions } from './sessions.js';
+import { escHtml, showNotification } from './ui.js';
 
 const THEME_STORAGE_KEY = 'ipai_theme';
 
@@ -272,7 +272,7 @@ function setupAccountSettings(b) {
     });
     if (res.ok) {
       closeModal();
-      import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/auth.js').then(a => a.logout());
+      import('./auth.js').then(a => a.logout());
     } else {
       const d = await res.json().catch(() => ({}));
       showNotification({ type: 'error', message: d.error || 'Delete failed', duration: 4000 });

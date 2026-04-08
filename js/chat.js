@@ -1,11 +1,11 @@
 // chat.js — Chat rendering, streaming, versioning, editing
-import { send, on, off } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
-import { currentSessionId } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/sessions.js';
+import { send, on, off } from './ws.js';
+import { currentSessionId } from './sessions.js';
 import {
   renderMarkdown, attachCodeCopyListeners, attachSvgPanelListeners,
   escHtml, showNotification, autoResize,
-} from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js';
-import { renderFilePreviewRow, clearFilePreviewRow } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/app.js';
+} from './ui.js';
+import { renderFilePreviewRow, clearFilePreviewRow } from './app.js';
 
 let activeSessionId = null;
 let isStreaming      = false;
@@ -279,7 +279,7 @@ function buildFileChipView(name, content, editable = false, onSave) {
       <span class="chip-meta">${lineCount} line${lineCount !== 1 ? 's' : ''}</span>
     </div>`;
   chip.addEventListener('click', () => {
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js').then(m => m.openFileViewerModal({
+    import('./modals.js').then(m => m.openFileViewerModal({
       name,
       content,
       editable,
@@ -342,7 +342,7 @@ function buildToolChip(call) {
   const chip = document.createElement('button');
   chip.className = 'msg-tool-call';
   chip.innerHTML = `<span>${icons[call.name] || '🔧'}</span><span>${escHtml(names[call.name] || call.name)}</span>`;
-  chip.addEventListener('click', () => import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js').then(m => m.showToolCallModal(call)));
+  chip.addEventListener('click', () => import('./modals.js').then(m => m.showToolCallModal(call)));
   return chip;
 }
 
@@ -1091,7 +1091,7 @@ function dlMedia(dataUrl, filename) {
 }
 
 function openImageModal(src) {
-  import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js').then(m => m.openImageModal(src));
+  import('./modals.js').then(m => m.openImageModal(src));
 }
 
 // Scroll tracking

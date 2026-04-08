@@ -1,5 +1,5 @@
 // auth.js - Authentication state and Supabase integration
-import { send, on } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
+import { send, on } from './ws.js';
 
 const SUPABASE_URL      = 'https://dpixehhdbtzsbckfektd.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwaXhlaGhkYnR6c2Jja2Zla3RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNDI0MjcsImV4cCI6MjA3NjcxODQyN30.nR1KCSRQj1E_evQWnE2VaZzg7PgLp2kqt4eDKP2PkpE';
@@ -148,7 +148,7 @@ function applyAuthOk(msg) {
   updateSidebarProfile();
   // Apply saved theme
   if (msg.settings?.theme) {
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/settings.js').then(m => m.applyTheme(msg.settings.theme));
+    import('./settings.js').then(m => m.applyTheme(msg.settings.theme));
   }
 }
 
@@ -159,18 +159,18 @@ function initAsGuest() {
 // ── WS events ─────────────────────────────────────────────────────────────
 
 on('auth:newLogin', (msg) => {
-  import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js').then(({ showNotification }) => {
+  import('./ui.js').then(({ showNotification }) => {
     showNotification({
       type: 'warning',
       message: `New login detected from ${msg.ip || 'unknown location'}`,
-      action: { label: 'View', onClick: () => import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/settings.js').then(m => m.openSettings('account')) },
+      action: { label: 'View', onClick: () => import('./settings.js').then(m => m.openSettings('account')) },
       duration: 8000,
     });
   });
 });
 
 on('auth:forcedLogout', (msg) => {
-  import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js').then(({ showNotification }) => {
+  import('./ui.js').then(({ showNotification }) => {
     showNotification({ type: 'error', message: msg.reason || 'Session revoked', duration: 5000 });
   });
   setTimeout(() => logout(), 1500);
@@ -179,7 +179,7 @@ on('auth:forcedLogout', (msg) => {
 on('settings:updated', (msg) => {
   if (msg.settings) {
     userSettings = msg.settings;
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/settings.js').then(m => m.applyTheme(msg.settings.theme));
+    import('./settings.js').then(m => m.applyTheme(msg.settings.theme));
   }
 });
 
@@ -228,11 +228,11 @@ window.addEventListener('storage', async (e) => {
   console.log('[Frontend Auth] Processing OAuth tokens:', tokens.access_token?.slice(0, 20) + '...');
   try {
     await handleSupabaseSession(tokens);
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js').then(({ showNotification }) =>
+    import('./ui.js').then(({ showNotification }) =>
       showNotification({ type: 'success', message: 'Signed in!', duration: 2500 }));
   } catch (err) {
     console.error('[Frontend Auth] OAuth sign-in error:', err);
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js').then(({ showNotification }) =>
+    import('./ui.js').then(({ showNotification }) =>
       showNotification({ type: 'error', message: `Sign-in failed: ${err.message}`, duration: 4000 }));
   }
 });
@@ -265,7 +265,7 @@ window.addEventListener('message', async (e) => {
   try { await handleSupabaseSession({ access_token, refresh_token }); }
   catch (err) {
     console.error('[Frontend Auth] postMessage sign-in error:', err);
-    import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js').then(({ showNotification }) =>
+    import('./ui.js').then(({ showNotification }) =>
       showNotification({ type: 'error', message: `Sign-in failed: ${err.message}`, duration: 4000 }));
   }
 });

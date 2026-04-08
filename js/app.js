@@ -1,14 +1,14 @@
 // app.js — bootstrap, input handling, sidebar, attach, paste
-import { send, on } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ws.js';
-import { isAuthenticated, logout, getTempId, getClientId, onAuthChange } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/auth.js';
+import { send, on } from './ws.js';
+import { isAuthenticated, logout, getTempId, getClientId, onAuthChange } from './auth.js';
 import {
   createNewSession, showWelcomeScreen,
   switchSession, currentSessionId, onSessionChange,
-} from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/sessions.js';
-import { submitMessage, renderSession, setActiveSession, getIsStreaming } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/chat.js';
-import { openAuthModal, closeModal, openPasteEditor } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js';
-import { openSettings, applyTheme } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/settings.js';
-import { showNotification, autoResize, escHtml } from 'https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/ui.js';
+} from './sessions.js';
+import { submitMessage, renderSession, setActiveSession, getIsStreaming } from './chat.js';
+import { openAuthModal, closeModal, openPasteEditor } from './modals.js';
+import { openSettings, applyTheme } from './settings.js';
+import { showNotification, autoResize, escHtml } from './ui.js';
 
 // ── Apply theme immediately from localStorage (no flash) ──────────────────
 (function earlyTheme() {
@@ -323,7 +323,7 @@ function buildAttachmentItem(a, i) {
         <span class="chip-meta">${lineCount} line${lineCount !== 1 ? 's' : ''}</span>
       </div>`;
     chip.addEventListener('click', () => {
-      import('https://cdn.jsdelivr.net/gh/incognitolm/InferencePort-Pages/js/modals.js').then(m => m.openFileViewerModal({
+      import('./modals.js').then(m => m.openFileViewerModal({
         name: a.name,
         content: a.content,
         editable: true,
