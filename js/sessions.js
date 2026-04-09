@@ -399,31 +399,31 @@ function startInlineRename(el) {
   });
 }
 
-function openSessionMenu(e, id) {
-  const items = [
-    {
-      label: 'Share', icon: '🔗',
-      onClick: () => showShareModal(id),
-    },
-    {
-      label: 'Rename', icon: '✏️',
-      onClick: () => {
-        const nameEl = document.querySelector(`.session-name[data-id="${id}"]`);
-        if (nameEl) startInlineRename(nameEl);
-      },
-    },
-    { separator: true },
-    {
-      label: 'Move to Recently Deleted', icon: '🗑️', danger: true,
-      onClick: () => deleteSession(id),
-    },
-    {
-      label: 'Delete All Chats', icon: '⚠️', danger: true,
-      onClick: () => deleteAllSessions(),
-    },
-  ];
-  showContextMenu(e.clientX, e.clientY, items, { compact: true });
-}
+// function openSessionMenu(e, id) {
+//   const items = [
+//     {
+//       label: 'Share', icon: '🔗',
+//       onClick: () => showShareModal(id),
+//     },
+//     {
+//       label: 'Rename', icon: '✏️',
+//       onClick: () => {
+//         const nameEl = document.querySelector(`.session-name[data-id="${id}"]`);
+//         if (nameEl) startInlineRename(nameEl);
+//       },
+//     },
+//     { separator: true },
+//     {
+//       label: 'Move to Recently Deleted', icon: '🗑️', danger: true,
+//       onClick: () => deleteSession(id),
+//     },
+//     {
+//       label: 'Delete All Chats', icon: '⚠️', danger: true,
+//       onClick: () => deleteAllSessions(),
+//     },
+//   ];
+//   showContextMenu(e.clientX, e.clientY, items, { compact: true });
+// }
 
 function openSessionMenu(e, id) {
   const items = [
