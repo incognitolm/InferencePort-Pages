@@ -508,17 +508,17 @@ function toolIcon(name) {
   }
 }
 
-function buildToolChip(call) {
-  const chip = document.createElement('button');
-  chip.className = 'msg-tool-call';
-  chip.dataset.state = call?.state || 'resolved';
-  chip.innerHTML = `
-    <span class="msg-tool-icon" aria-hidden="true">${toolIcon(call?.name)}</span>
-    <span>${escHtml(toolLabel(call?.name))}</span>
-  `;
-  chip.addEventListener('click', () => import('./modals.js').then(m => m.showToolCallModal(call)));
-  return chip;
-}
+// function buildToolChip(call) {
+//   const chip = document.createElement('button');
+//   chip.className = 'msg-tool-call';
+//   chip.dataset.state = call?.state || 'resolved';
+//   chip.innerHTML = `
+//     <span class="msg-tool-icon" aria-hidden="true">${toolIcon(call?.name)}</span>
+//     <span>${escHtml(toolLabel(call?.name))}</span>
+//   `;
+//   chip.addEventListener('click', () => import('./modals.js').then(m => m.showToolCallModal(call)));
+//   return chip;
+// }
 
 async function resolveMediaUrl(contentRef) {
   if (contentRef?.src) return contentRef.src;
