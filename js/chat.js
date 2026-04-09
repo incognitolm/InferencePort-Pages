@@ -62,7 +62,35 @@ on('ws:connected', () => {
 function extractFlatHistoryFromTree(rootMessage) {
   if (!rootMessage) return [];
   const history = [];
+  const getActiveVersion = (message) => {
+    if (!message) return null;
+    const versions = Array.isArray(message.versions) ? message.versions : [];
+    if (!versions.length) {
+      message.versions = [{ content: message.content ?? '', tail: [], timestamp: Date.now() }];
+      message.currentVersionIdx = 0;
+      return message.versions[0];
+    }
+    const currentVersionIdx = Number.isInteger(message.currentVersionIdx)
+      ? Math.max(0, Math.min(message.currentVersionIdx, versions.length - 1))
+      : 0;
+    message.currentVersionIdx = currentVersionIdx;
+    if (!Array.isArray(message.versions[currentVersionIdx].tail)) {
+      message.versions[currentVersionIdx].tail = [];
+    }
+    if (message.versions[currentVersionIdx].content === undefined || message.versions[currentVersionIdx].content === null) {
+      message.versions[currentVersionIdx].content = message.content ?? '';
+    }
+    return message.versions[currentVersionIdx];
+  };
+  const cloneMetaValue = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
   const ensureValidContent = (msg) => {
+    if (!msg) return msg;
+    const currentVersion = getActiveVersion(msg);
+    msg.content = currentVersion?.content ?? msg.content ?? '';
+    ['toolCalls', 'responseEdits', 'responseSegments', 'error'].forEach((key) => {
+      if (currentVersion && key in currentVersion) msg[key] = cloneMetaValue(currentVersion[key]);
+      else delete msg[key];
+    });
     if (msg.content === undefined || msg.content === null) msg.content = '';
     return msg;
   };
@@ -75,7 +103,17 @@ function extractFlatHistoryFromTree(rootMessage) {
     if (!currentVersion) return;
     const tail = currentVersion.tail;
     if (!Array.isArray(tail) || tail.length === 0) return;
-    for (const tailMessage of tail) extractBranch(tailMessage);
+    for (let i = 0; i < tail.length; i++) {
+      const tailMessage = tail[i];
+      extractBranch(tailMessage);
+      if (
+        tailMessage?.role === 'user' &&
+        Array.isArray(tailMessage.versions) &&
+        tailMessage.versions.length > 1
+      ) {
+        break;
+      }
+    }
   };
   extractBranch(rootMessage);
   return history;
