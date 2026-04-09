@@ -1309,41 +1309,41 @@ function onChatAborted(msg) {
   }
 }
 
-function onChatError(err) {
-  isStreaming = false;
-  streamingSessionId = null;
-  streamingDraftEdits = [];
-  if (streamingBubble) {
-    streamingBubble.classList.remove('msg-generating');
-    streamingBubble.querySelector('.msg-thinking')?.remove();
-    const note = document.createElement('div');
-    note.style.cssText = 'color:#f87171;font-size:13px;margin-top:6px;';
-    note.textContent = `⚠ Error: ${err}`;
-    streamingBubble.appendChild(note);
-    streamingBubble = null;
-  }
-  updateSendBtn(false);
-}
+// function onChatError(err) {
+//   isStreaming = false;
+//   streamingSessionId = null;
+//   streamingDraftEdits = [];
+//   if (streamingBubble) {
+//     streamingBubble.classList.remove('msg-generating');
+//     streamingBubble.querySelector('.msg-thinking')?.remove();
+//     const note = document.createElement('div');
+//     note.style.cssText = 'color:#f87171;font-size:13px;margin-top:6px;';
+//     note.textContent = `⚠ Error: ${err}`;
+//     streamingBubble.appendChild(note);
+//     streamingBubble = null;
+//   }
+//   updateSendBtn(false);
+// }
 
-function handleLiveToolCall(call) {
-  if (!streamingBubble) return;
-  const names = { ollama_search: 'Searching web…', read_web_page: 'Reading page…',
-    generate_image: 'Generating image…', generate_video: 'Generating video…', generate_audio: 'Generating audio…',
-    save_memory: 'Saving memory…', delete_memory: 'Deleting memory…', list_memories: 'Checking memories…',
-    edit_response_draft: 'Revising answer…' };
+// function handleLiveToolCall(call) {
+//   if (!streamingBubble) return;
+//   const names = { ollama_search: 'Searching web…', read_web_page: 'Reading page…',
+//     generate_image: 'Generating image…', generate_video: 'Generating video…', generate_audio: 'Generating audio…',
+//     save_memory: 'Saving memory…', delete_memory: 'Deleting memory…', list_memories: 'Checking memories…',
+//     edit_response_draft: 'Revising answer…' };
 
-  if (call.state === 'pending') {
-    streamingBubble.querySelector('.msg-thinking')?.remove();
-    if (!streamingBubble.querySelector(`[data-tcid="${call.id}"]`)) {
-      const badge = document.createElement('div'); badge.className = 'msg-tool-call';
-      badge.style.pointerEvents = 'none'; badge.setAttribute('data-tcid', call.id);
-      badge.innerHTML = `<span>🔧</span><span>${names[call.name] || call.name}</span>`;
-      streamingBubble.appendChild(badge);
-    }
-  } else if (call.state === 'resolved' || call.state === 'canceled') {
-    streamingBubble.querySelector(`[data-tcid="${call.id}"]`)?.remove();
-  }
-}
+//   if (call.state === 'pending') {
+//     streamingBubble.querySelector('.msg-thinking')?.remove();
+//     if (!streamingBubble.querySelector(`[data-tcid="${call.id}"]`)) {
+//       const badge = document.createElement('div'); badge.className = 'msg-tool-call';
+//       badge.style.pointerEvents = 'none'; badge.setAttribute('data-tcid', call.id);
+//       badge.innerHTML = `<span>🔧</span><span>${names[call.name] || call.name}</span>`;
+//       streamingBubble.appendChild(badge);
+//     }
+//   } else if (call.state === 'resolved' || call.state === 'canceled') {
+//     streamingBubble.querySelector(`[data-tcid="${call.id}"]`)?.remove();
+//   }
+// }
 
 function appendAsset(asset) {
   const box = document.getElementById('chat-messages'); if (!box) return;
