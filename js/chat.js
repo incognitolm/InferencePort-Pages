@@ -1569,22 +1569,22 @@ function onChatStart(msg) {
 //   renderStreamingBubble();
 // }
 
-function onChatDone(msg) {
-  const sessionId = msg.sessionId;
-  if (sessionId === streamingSessionId) {
-    isStreaming = false;
-    streamingSessionId = null;
-  }
+// function onChatDone(msg) {
+//   const sessionId = msg.sessionId;
+//   if (sessionId === streamingSessionId) {
+//     isStreaming = false;
+//     streamingSessionId = null;
+//   }
 
-  if (sessionId === activeSessionId) {
-    sessionErrorStates.delete(sessionId);
-    updateSendBtn(false);
-    clearStreamingState();
-    if (msg.history) {
-      renderHistory(msg.history);
-    }
-  }
-}
+//   if (sessionId === activeSessionId) {
+//     sessionErrorStates.delete(sessionId);
+//     updateSendBtn(false);
+//     clearStreamingState();
+//     if (msg.history) {
+//       renderHistory(msg.history);
+//     }
+//   }
+// }
 
 function onChatAborted(msg) {
   const sessionId = msg.sessionId;
