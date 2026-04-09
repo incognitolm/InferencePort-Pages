@@ -2,6 +2,26 @@ import { send, on } from './ws.js';
 import { showContextMenu } from './ui.js';
 import { showShareModal, openConfirmModal } from './modals.js';
 
+function menuDotsIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>`;
+}
+
+function shareIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4"/><path d="M15.4 6.5l-6.8 4"/></svg>`;
+}
+
+function renameIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
+}
+
+function trashIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`;
+}
+
+function warningIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>`;
+}
+
 export let sessions = [];
 export let currentSessionId = null;
 
@@ -248,7 +268,7 @@ function renderChatSidebar() {
 
   list.querySelectorAll('.session-menu-btn').forEach((btn) => {
     btn.setAttribute('aria-label', 'Chat options');
-    btn.innerHTML = '<span class="session-menu-dots" aria-hidden="true">...</span>';
+    btn.innerHTML = `<span class="session-menu-dots" aria-hidden="true">${menuDotsIcon()}</span>`;
     btn.addEventListener('click', (event) => {
       event.stopPropagation();
       openSessionMenu(event, btn.dataset.id);
@@ -403,6 +423,38 @@ function openSessionMenu(e, id) {
     },
   ];
   showContextMenu(e.clientX, e.clientY, items, { compact: true });
+}
+
+function openSessionMenu(e, id) {
+  const items = [
+    {
+      label: 'Share',
+      icon: shareIcon(),
+      onClick: () => showShareModal(id),
+    },
+    {
+      label: 'Rename',
+      icon: renameIcon(),
+      onClick: () => {
+        const nameEl = document.querySelector(`.session-name[data-id="${id}"]`);
+        if (nameEl) startInlineRename(nameEl);
+      },
+    },
+    { separator: true },
+    {
+      label: 'Move to Recently Deleted',
+      icon: trashIcon(),
+      danger: true,
+      onClick: () => deleteSession(id),
+    },
+    {
+      label: 'Delete All Chats',
+      icon: warningIcon(),
+      danger: true,
+      onClick: () => deleteAllSessions(),
+    },
+  ];
+  showContextMenu(e.clientX, e.clientY, items, { compact: true, triggerEl: e.currentTarget || null });
 }
 
 function groupByDate(allSessions) {

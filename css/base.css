@@ -1,6 +1,17 @@
+:root {
+  --app-height: 100dvh;
+  --viewport-offset-top: 0px;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html, body {
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 
 body {
   font-family: var(--font-sans);
@@ -13,8 +24,10 @@ body {
 
 #app {
   display: flex;
-  height: 100vh;
+  height: var(--app-height, 100dvh);
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 button { cursor: pointer; border: none; background: none; font: inherit; color: inherit; }

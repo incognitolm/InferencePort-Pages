@@ -24,6 +24,31 @@ const MAX_TEXT_UPLOAD_BYTES = 100 * 1024;
   } catch {}
 })();
 
+// ── Keep mobile viewport height aligned with keyboard/open-close changes ────
+(function syncViewportHeight() {
+  let rafId = 0;
+
+  const applyViewportSize = () => {
+    rafId = 0;
+    const viewport = window.visualViewport;
+    const height = Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0);
+    const offsetTop = Math.max(0, Math.round(viewport?.offsetTop || 0));
+    document.documentElement.style.setProperty('--app-height', `${height}px`);
+    document.documentElement.style.setProperty('--viewport-offset-top', `${offsetTop}px`);
+  };
+
+  const requestViewportSync = () => {
+    if (rafId) return;
+    rafId = requestAnimationFrame(applyViewportSize);
+  };
+
+  applyViewportSize();
+  window.addEventListener('resize', requestViewportSync, { passive: true });
+  window.addEventListener('orientationchange', requestViewportSync, { passive: true });
+  window.visualViewport?.addEventListener('resize', requestViewportSync, { passive: true });
+  window.visualViewport?.addEventListener('scroll', requestViewportSync, { passive: true });
+})();
+
 // ── TOS banner — push content up so input isn't obscured ─────────────────
 
 (function fixTosBanner() {
@@ -51,6 +76,7 @@ const MAX_TEXT_UPLOAD_BYTES = 100 * 1024;
   };
   requestAnimationFrame(() => { applyPadding(); });
   window.addEventListener('resize', applyPadding);
+  window.visualViewport?.addEventListener('resize', applyPadding, { passive: true });
 })();
 
 // ── Sidebar ───────────────────────────────────────────────────────────────
@@ -148,14 +174,28 @@ export function resetToNewChatView({ focusInput = false } = {}) {
   backdrop.className = 'sidebar-backdrop';
   document.body.appendChild(backdrop);
 
+  function resetMobileBackdropState() {
+    backdrop.classList.remove('visible');
+    document.body.classList.remove('mobile-sidebar-open');
+    sidebar?.classList.remove('mobile-closing');
+  }
+
   function openSidebar()  {
     sidebar?.classList.remove('collapsed'); sidebar?.classList.add('expanded');
+    document.body.classList.add('mobile-sidebar-open');
     backdrop.classList.add('visible');
   }
   function closeSidebar() {
+    document.activeElement?.blur?.();
+    sidebar?.classList.add('mobile-closing');
     sidebar?.classList.remove('expanded'); sidebar?.classList.add('collapsed');
-    backdrop.classList.remove('visible');
     closeTrashOverlay();
+    resetMobileBackdropState();
+    requestAnimationFrame(() => {
+      document.body.classList.remove('mobile-sidebar-open');
+      sidebar?.classList.remove('mobile-closing');
+      void backdrop.offsetHeight;
+    });
   }
 
   backdrop.addEventListener('click', closeSidebar);
@@ -207,6 +247,17 @@ export function resetToNewChatView({ focusInput = false } = {}) {
       lastScrollY = 0;
     }
   });
+
+  if (window.innerWidth > 768) {
+    resetMobileBackdropState();
+  }
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) {
+      resetMobileBackdropState();
+      sidebar?.classList.remove('mobile-closing');
+    }
+  }, { passive: true });
 })();
 
 // ── New chat — just show the welcome screen ───────────────────────────────
@@ -380,6 +431,7 @@ function openAttachMenu(e, triggerEl) {
     },
   ], {
     menuId: 'attach-context-menu',
+    triggerEl,
   });
 }
 
@@ -563,6 +615,59 @@ function setupBulletAutoConvert(textarea) {
   });
 }
 
+function getBulletLineInfo(textarea) {
+  const value = textarea.value;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+  const lineEndIndex = value.indexOf('\n', end);
+  const lineEnd = lineEndIndex === -1 ? value.length : lineEndIndex;
+  const line = value.slice(lineStart, lineEnd);
+  return { value, start, end, lineStart, lineEnd, line };
+}
+
+function replaceBulletTextarea(textarea, from, to, nextText, cursorOffset = nextText.length) {
+  textarea.value = textarea.value.slice(0, from) + nextText + textarea.value.slice(to);
+  const nextPos = from + cursorOffset;
+  textarea.setSelectionRange(nextPos, nextPos);
+  autoResize(textarea, 6);
+}
+
+function setupBulletAutoConvert(textarea) {
+  if (!textarea) return;
+  const BULLET = '\u2022';
+
+  textarea.addEventListener('keydown', (e) => {
+    const { value, start, end, lineStart, lineEnd, line } = getBulletLineInfo(textarea);
+    const trimmed = line.trim();
+    const beforeCursor = value.slice(lineStart, start);
+
+    if (e.key === ' ' && beforeCursor === '-') {
+      e.preventDefault();
+      replaceBulletTextarea(textarea, lineStart, start, `${BULLET} `);
+      return;
+    }
+
+    if (e.key === 'Enter' && e.shiftKey && line.startsWith(`${BULLET} `)) {
+      e.preventDefault();
+      const nextLine = trimmed === BULLET ? '\n' : `\n${BULLET} `;
+      replaceBulletTextarea(textarea, start, end, nextLine);
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && line === `${BULLET} ` && start === end) {
+      e.preventDefault();
+      replaceBulletTextarea(textarea, lineStart, lineEnd, '', 0);
+      return;
+    }
+
+    if (e.key === 'Backspace' && start === end && line.startsWith(`${BULLET} `) && beforeCursor === `${BULLET} `) {
+      e.preventDefault();
+      replaceBulletTextarea(textarea, lineStart, lineStart + 2, '', 0);
+    }
+  });
+}
+
 function bindNearLeftCaretFocus(container, textarea) {
   if (!container || !textarea) return;
   container.addEventListener('pointerdown', (event) => {
@@ -602,6 +707,23 @@ document.getElementById('settings-btn-guest')?.addEventListener('click', () => o
 document.getElementById('user-profile-btn')?.addEventListener('click', e => {
   const btn = e.currentTarget;
   const rect = btn.getBoundingClientRect();
+  const icon = {
+    settings: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1v.2a2 2 0 1 1-4 0V21a1.7 1.7 0 0 0-.4-1 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4h-.2a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1-.4 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1v-.2a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 .4 1 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.26.3.47.65.6 1 .09.32.14.66.14 1s-.05.68-.14 1c-.13.35-.34.7-.6 1z"/></svg>`,
+    account: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21a8 8 0 1 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>`,
+    billing: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>`,
+    clear: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`,
+    signout: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>`,
+  };
+  showContextMenu(rect.left, rect.top - 8, [
+    { label: 'Settings', icon: icon.settings, onClick: () => openSettings('chat') },
+    { label: 'Account', icon: icon.account, onClick: () => openSettings('account') },
+    { label: 'Billing Portal', icon: icon.billing, onClick: () => window.open('https://sharktide-lightning.hf.space/portal', '_blank') },
+    { separator: true },
+    { label: 'Clear All Chats', icon: icon.clear, danger: true, onClick: () => deleteAllSessions() },
+    { separator: true },
+    { label: 'Sign Out', icon: icon.signout, danger: true, onClick: () => logout() },
+  ], { menuId: 'user-context-menu', triggerEl: btn });
+  return;
   const menu = document.getElementById('user-context-menu');
   if (!menu) return;
 

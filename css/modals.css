@@ -107,6 +107,82 @@
 .setting-label { font-size: 14px; font-weight: 500; }
 .setting-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
+.settings-usage-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-raised);
+}
+
+.settings-usage-panel.compact {
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.settings-usage-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-usage-list {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-usage-list.compact {
+  gap: 8px;
+}
+
+.settings-usage-row {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-usage-row.compact {
+  gap: 5px;
+}
+
+.settings-usage-head,
+.settings-usage-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-usage-head {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-usage-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settings-usage-track {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+}
+
+.settings-usage-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--yellow), var(--plan-core));
+}
+
+.settings-usage-row[data-tone="warning"] .settings-usage-fill {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+}
+
+.settings-usage-row[data-tone="danger"] .settings-usage-fill {
+  background: linear-gradient(90deg, #fb7185, #ef4444);
+}
+
 /* ── Sign in modal ───────────────────────────────────────────────────────── */
 .auth-tabs {
   display: flex; gap: 0;

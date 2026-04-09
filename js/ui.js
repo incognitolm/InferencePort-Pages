@@ -37,13 +37,23 @@ export function showNotification({ type = 'info', message, action, duration = 50
 
 let activeMenu = null;
 let menuDocHandler = null;
+let activeMenuTrigger = null;
+let activeMenuPoint = null;
 
 export function showContextMenu(x, y, items, options = {}) {
-  closeContextMenu();
-
   const menu = options.menuElement
     || document.getElementById(options.menuId || 'session-context-menu');
   if (!menu) return;
+  const sameTrigger = !!options.triggerEl && options.triggerEl === activeMenuTrigger;
+  const samePoint = !options.triggerEl && activeMenuPoint
+    && Math.abs(activeMenuPoint.x - x) < 4
+    && Math.abs(activeMenuPoint.y - y) < 4;
+  if (activeMenu === menu && (sameTrigger || samePoint)) {
+    closeContextMenu();
+    return;
+  }
+
+  closeContextMenu();
   const hasDescriptions = items.some((item) => !!item?.description);
   menu.innerHTML = '';
   menu.style.zIndex = options.layer === 'modal'
@@ -63,11 +73,13 @@ export function showContextMenu(x, y, items, options = {}) {
     el.className = 'context-item'
       + (item.danger ? ' danger' : '')
       + (item.warning ? ' warning' : '')
+      + (item.disabled ? ' disabled' : '')
       + (item.description ? ' has-description' : '');
     if (item.icon) {
       const ic = document.createElement('span');
       ic.className = 'context-item-icon';
-      ic.textContent = item.icon;
+      if (typeof item.icon === 'string' && item.icon.trim().startsWith('<svg')) ic.innerHTML = item.icon;
+      else ic.textContent = item.icon;
       el.appendChild(ic);
     }
     const copy = document.createElement('div');
@@ -86,7 +98,11 @@ export function showContextMenu(x, y, items, options = {}) {
     }
 
     el.appendChild(copy);
-    el.addEventListener('click', (e) => { e.stopPropagation(); closeContextMenu(); item.onClick?.(); });
+    if (item.disabled) {
+      el.setAttribute('aria-disabled', 'true');
+    } else {
+      el.addEventListener('click', (e) => { e.stopPropagation(); closeContextMenu(); item.onClick?.(); });
+    }
     menu.appendChild(el);
   }
 
@@ -101,11 +117,14 @@ export function showContextMenu(x, y, items, options = {}) {
   menu.style.top  = `${top}px`;
 
   activeMenu = menu;
+  activeMenuTrigger = options.triggerEl || null;
+  activeMenuPoint = { x, y };
   queueMicrotask(() => {
     menuDocHandler = (e) => {
       if (!menu.contains(e.target)) closeContextMenu();
     };
     document.addEventListener('click', menuDocHandler);
+    document.addEventListener('contextmenu', menuDocHandler);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeContextMenu(); }, { once: true });
   });
 }
@@ -138,7 +157,13 @@ export function showUserMenu(x, y, items) {
 export function closeContextMenu() {
   activeMenu?.classList.add('hidden');
   activeMenu = null;
-  if (menuDocHandler) { document.removeEventListener('click', menuDocHandler); menuDocHandler = null; }
+  activeMenuTrigger = null;
+  activeMenuPoint = null;
+  if (menuDocHandler) {
+    document.removeEventListener('click', menuDocHandler);
+    document.removeEventListener('contextmenu', menuDocHandler);
+    menuDocHandler = null;
+  }
 }
 
 // ── Markdown rendering ────────────────────────────────────────────────────
@@ -216,11 +241,205 @@ function buildMarkdownOptions() {
     const hrefStr = typeof href === 'object' ? (href.href || '') : (href || '');
     const titleStr = typeof title === 'string' ? title : '';
     const textStr = typeof text === 'string' ? text : '';
-    const safeHref = escHtml(hrefStr);
-    return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" title="${escHtml(titleStr)}">${textStr}</a>`;
+    const safeHref = sanitizeLinkHref(hrefStr);
+    return `<a href="${escAttr(safeHref)}" target="_blank" rel="noopener noreferrer" title="${escHtml(titleStr)}">${textStr}</a>`;
   };
 
   return { renderer, breaks: true, gfm: true };
+}
+
+const HTML_SANDBOX_ATTR = 'data-html-sandbox';
+let htmlSandboxCounter = 0;
+let htmlSandboxMessageBound = false;
+
+function sanitizeLinkHref(href) {
+  const value = String(href || '').trim();
+  if (!value) return '#';
+  if (value.startsWith('#') || value.startsWith('/')) return value;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol)) return url.href;
+  } catch {}
+  return '#';
+}
+
+function containsDangerousHtmlAttribute(element) {
+  return [...(element?.attributes || [])].some((attr) => {
+    const name = attr.name.toLowerCase();
+    const value = String(attr.value || '').trim().toLowerCase();
+    return name.startsWith('on')
+      || ((name === 'href' || name === 'src' || name === 'action') && value.startsWith('javascript:'))
+      || value.startsWith('data:text/html');
+  });
+}
+
+function topLevelHtmlNode(node, root) {
+  let current = node;
+  while (current?.parentElement && current.parentElement !== root) current = current.parentElement;
+  return current;
+}
+
+function extractSandboxedHtml(rawHtml) {
+  const doc = new DOMParser().parseFromString(`<body>${rawHtml || ''}</body>`, 'text/html');
+  const riskyTags = doc.body.querySelectorAll('script, style, iframe, form, link[rel="stylesheet"], meta[http-equiv], object, embed');
+  const riskyRoots = new Set();
+
+  riskyTags.forEach((node) => riskyRoots.add(topLevelHtmlNode(node, doc.body)));
+  doc.body.querySelectorAll('*').forEach((element) => {
+    if (containsDangerousHtmlAttribute(element)) riskyRoots.add(topLevelHtmlNode(element, doc.body));
+  });
+
+  riskyRoots.forEach((rootNode) => {
+    if (!rootNode?.outerHTML) return;
+    const placeholder = doc.createElement('div');
+    placeholder.className = 'html-sandbox-placeholder';
+    placeholder.setAttribute(HTML_SANDBOX_ATTR, encodeURIComponent(rootNode.outerHTML));
+    rootNode.replaceWith(placeholder);
+  });
+
+  return doc.body.innerHTML;
+}
+
+function sandboxWarningMarkup(risk) {
+  return `
+    <div class="html-sandbox-warning">
+      <div class="html-sandbox-warning-title">Scripted HTML blocked</div>
+      <div class="html-sandbox-warning-copy">
+        ${escHtml(risk.reason || 'This HTML contains script or external behavior and needs approval before it can run.')}
+      </div>
+      <button class="html-sandbox-warning-btn" type="button">Review and Run</button>
+    </div>
+  `;
+}
+
+function analyzeHtmlRisk(html) {
+  const source = String(html || '');
+  const riskPatterns = [
+    { re: /window\.open\s*\(/i, reason: 'This script attempts to open a new browser window or tab.' },
+    { re: /\blocation\.(assign|replace)\s*\(|\blocation\s*=/i, reason: 'This script attempts to navigate to another URL.' },
+    { re: /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bnavigator\.sendBeacon\b/i, reason: 'This script attempts to contact another service.' },
+    { re: /\bdocument\.cookie\b|\blocalStorage\b|\bsessionStorage\b/i, reason: 'This script attempts to access stored browser data.' },
+    { re: /\btop\.|\bparent\.|\bpostMessage\s*\(/i, reason: 'This script attempts to interact outside its preview container.' },
+    { re: /<iframe\b|<form\b|javascript:/i, reason: 'This HTML includes external or executable content.' },
+  ];
+
+  const match = riskPatterns.find((entry) => entry.re.test(source));
+  return {
+    dangerous: !!match,
+    reason: match?.reason || '',
+  };
+}
+
+function confirmHtmlExecution(risk) {
+  const first = window.confirm(
+    `${risk.reason || 'This HTML can execute script behavior.'}\n\nOnly continue if you trust the content and understand that it may be unsafe.`
+  );
+  if (!first) return false;
+  return window.confirm(
+    'Final warning: running this content may open URLs, make network requests, or behave unexpectedly. InferencePort AI is not responsible for any damages it may cause.\n\nRun it anyway?'
+  );
+}
+
+function buildSandboxSrcdoc(html, sandboxId, { relaxed = false } = {}) {
+  const csp = relaxed
+    ? "default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline'; font-src * data:; script-src 'unsafe-inline'; connect-src * data: blob:; frame-src * data: blob:; form-action *; base-uri 'none'; object-src 'none';"
+    : "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none';";
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="${escAttr(csp)}" />
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; color: inherit; font: 14px/1.6 system-ui, sans-serif; overflow-wrap: anywhere; }
+      body { padding: 12px; }
+      img, video, audio, iframe, canvas, svg { max-width: 100%; }
+    </style>
+  </head>
+  <body>
+    ${html}
+    <script>
+      const sendHeight = () => {
+        const height = Math.max(
+          document.documentElement.scrollHeight || 0,
+          document.body?.scrollHeight || 0,
+          document.documentElement.offsetHeight || 0,
+          document.body?.offsetHeight || 0
+        );
+        parent.postMessage({ type: 'ipai:html-sandbox:height', id: ${JSON.stringify(sandboxId)}, height }, '*');
+      };
+      new ResizeObserver(sendHeight).observe(document.body);
+      addEventListener('load', () => {
+        sendHeight();
+        setTimeout(sendHeight, 60);
+      });
+    </script>
+  </body>
+</html>`;
+}
+
+function bindHtmlSandboxListener() {
+  if (htmlSandboxMessageBound) return;
+  htmlSandboxMessageBound = true;
+  window.addEventListener('message', (event) => {
+    const data = event.data || {};
+    if (data.type !== 'ipai:html-sandbox:height' || !data.id) return;
+    const frame = document.querySelector(`iframe[data-html-sandbox-id="${CSS.escape(data.id)}"]`);
+    if (!frame) return;
+    const height = Math.max(80, Math.min(Number(data.height) || 0, 1200));
+    frame.style.height = `${height}px`;
+  });
+}
+
+function renderHtmlSandboxPlaceholder(node) {
+  const html = decodeURIComponent(node.getAttribute(HTML_SANDBOX_ATTR) || '');
+  const risk = analyzeHtmlRisk(html);
+
+  if (risk.dangerous && node.dataset.htmlApproved !== '1') {
+    node.innerHTML = sandboxWarningMarkup(risk);
+    node.querySelector('.html-sandbox-warning-btn')?.addEventListener('click', () => {
+      if (!confirmHtmlExecution(risk)) return;
+      node.dataset.htmlApproved = '1';
+      renderHtmlSandboxPlaceholder(node);
+    });
+    return;
+  }
+
+  bindHtmlSandboxListener();
+  const iframe = document.createElement('iframe');
+  const sandboxId = `html-sandbox-${++htmlSandboxCounter}`;
+  iframe.className = 'html-sandbox-frame';
+  iframe.setAttribute('data-html-sandbox-id', sandboxId);
+  iframe.setAttribute('sandbox', risk.dangerous ? 'allow-scripts allow-forms allow-popups' : 'allow-scripts');
+  iframe.setAttribute('referrerpolicy', 'no-referrer');
+  iframe.srcdoc = buildSandboxSrcdoc(html, sandboxId, {
+    relaxed: risk.dangerous && node.dataset.htmlApproved === '1',
+  });
+  node.innerHTML = '';
+  node.appendChild(iframe);
+}
+
+export function hydrateHtmlSandboxPlaceholders(container) {
+  container?.querySelectorAll?.(`[${HTML_SANDBOX_ATTR}]`)?.forEach((node) => {
+    if (node.dataset.htmlHydrated === '1') return;
+    node.dataset.htmlHydrated = '1';
+    renderHtmlSandboxPlaceholder(node);
+  });
+}
+
+export function sanitizeEditableHtml(html) {
+  const source = String(html || '').trim();
+  if (!source) return '<p></p>';
+  return window.DOMPurify?.sanitize(source, {
+    ALLOWED_TAGS: [
+      'p','br','strong','em','del','u','s','h1','h2','h3','h4','h5','h6',
+      'ul','ol','li','blockquote','hr','table','thead','tbody','tr','th','td',
+      'pre','code','a','img','span','div','details','summary','button'
+    ],
+    ALLOWED_ATTR: ['href','src','alt','title','class','data-color','target','rel','style','open','align','type','aria-label','aria-hidden'],
+    ALLOW_DATA_ATTR: true,
+    FORBID_TAGS: ['script', 'iframe', 'form', 'object', 'embed', 'meta', 'link'],
+  }) || '<p></p>';
 }
 
 export function renderMarkdown(text) {
@@ -228,18 +447,19 @@ export function renderMarkdown(text) {
   try {
     marked.setOptions(buildMarkdownOptions());
     const raw = marked.parse(text);
-    const clean = DOMPurify.sanitize(raw, {
+    const isolated = extractSandboxedHtml(raw);
+    const clean = DOMPurify.sanitize(isolated, {
       ALLOWED_TAGS: [
         'p','br','strong','em','del','u','s','h1','h2','h3','h4','h5','h6',
         'ul','ol','li','blockquote','hr','table','thead','tbody','tr','th','td',
         'pre','code','a','img','span','div','details','summary','button','svg','rect',
       ],
-      ALLOWED_ATTR: ['href','src','alt','title','class','data-code','data-code-key','data-svg','data-color',
+      ALLOWED_ATTR: ['href','src','alt','title','class','data-code','data-code-key','data-svg','data-color', HTML_SANDBOX_ATTR,
         'target','rel','style','open','align','type','aria-label','aria-hidden','viewBox','width','height',
         'focusable','x','y','rx','ry','fill','stroke','stroke-width'],
       ALLOW_DATA_ATTR: true,
     });
-    return clean;
+    return clean.replace(/href="([^"]+)"/g, (_match, href) => `href="${escAttr(sanitizeLinkHref(href))}"`);
   } catch (e) {
     return escHtml(text);
   }
@@ -358,4 +578,11 @@ export function escAttr(str) {
   return String(str).replace(/"/g,'&quot;');
 }
 
-window.ui = { showNotification, showContextMenu, showUserMenu, renderMarkdown };
+window.ui = {
+  showNotification,
+  showContextMenu,
+  showUserMenu,
+  renderMarkdown,
+  hydrateHtmlSandboxPlaceholders,
+  sanitizeEditableHtml,
+};

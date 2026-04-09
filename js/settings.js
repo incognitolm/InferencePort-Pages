@@ -1,13 +1,17 @@
 // settings.js — Settings modal
 import { send, on, off } from './ws.js';
 import { openModal, closeModal, openDeviceSessionModal, openConfirmModal, openTextPromptModal } from './modals.js';
-import { isAuthenticated, currentUser, userProfile, userSettings } from './auth.js';
+import { isAuthenticated, currentUser, userProfile, userSettings, getClientId } from './auth.js';
 import { deleteAllSessions } from './sessions.js';
-import { escHtml, showNotification, showContextMenu } from './ui.js';
+import { escHtml, showNotification, showContextMenu, sanitizeEditableHtml } from './ui.js';
 
 const THEME_STORAGE_KEY = 'ipai_theme';
 
 let currentTheme = null;
+
+function menuDotsIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>`;
+}
 
 export function applyTheme(theme, animate = true) {
   const t = theme === 'light' ? 'light' : 'dark';
@@ -86,6 +90,8 @@ function _openSettingsModal(activeTab, settings) {
       const cleanups = [];
       setupSettingsTabs(b);
       setupChatSettings(b);
+      const usageCleanup = setupUsagePanels(b);
+      if (typeof usageCleanup === 'function') cleanups.push(usageCleanup);
       const personalizationCleanup = setupPersonalizationSettings(b);
       if (typeof personalizationCleanup === 'function') cleanups.push(personalizationCleanup);
       const memoryCleanup = setupMemorySettings(b);
@@ -133,6 +139,9 @@ function buildSettingsHtml(activeTab, settings) {
     ${buildToolToggle('imageGen',   'Image Generation','Generate images from prompts', settings.imageGen !== false)}
     ${buildToolToggle('videoGen',   'Video Generation','Generate videos from prompts', settings.videoGen !== false)}
     ${buildToolToggle('audioGen',   'Audio / SFX',    'Generate music and sound effects', settings.audioGen !== false)}
+    <div id="tool-usage-panel" class="settings-usage-panel">
+      <div class="settings-usage-empty">Loading tool usageâ€¦</div>
+    </div>
   </div>
 
   ${buildPersonalizationPane(activeTab, authed)}
@@ -260,12 +269,113 @@ function buildAccountPane(activeTab) {
   </div>`;
 }
 
+const TOOL_USAGE_KEYS = ['webSearchDaily', 'imagesDaily', 'videosDaily', 'audioWeekly', 'cloudChatDaily'];
+const ACCOUNT_USAGE_KEYS = ['cloudChatDaily', 'webSearchDaily', 'imagesDaily', 'videosDaily', 'audioWeekly'];
+
+function usageMetricLabel(key) {
+  const labels = {
+    webSearchDaily: 'Web Search',
+    imagesDaily: 'Image Gen',
+    videosDaily: 'Video Gen',
+    audioWeekly: 'Audio / SFX',
+    cloudChatDaily: 'Chat Credits',
+  };
+  return labels[key] || key;
+}
+
+function normalizeUsageMetric(metric) {
+  const limit = Number(metric?.limit || 0);
+  const used = Number(metric?.used || 0);
+  const remaining = metric?.remaining ?? Math.max(0, limit - used);
+  const percent = limit > 0 ? Math.max(0, Math.min(100, (used / limit) * 100)) : 0;
+  return {
+    limit,
+    used,
+    remaining,
+    percent,
+    window: metric?.window || '',
+    period: metric?.period || '',
+  };
+}
+
+function buildUsageRow(key, metric, { compact = false } = {}) {
+  const normalized = normalizeUsageMetric(metric);
+  const tone = normalized.percent >= 90 ? 'danger' : normalized.percent >= 70 ? 'warning' : 'normal';
+  return `
+    <div class="settings-usage-row ${compact ? 'compact' : ''}" data-tone="${tone}">
+      <div class="settings-usage-head">
+        <span>${escHtml(usageMetricLabel(key))}</span>
+        <span>${normalized.used}/${normalized.limit || '∞'}</span>
+      </div>
+      <div class="settings-usage-track">
+        <div class="settings-usage-fill" style="width:${normalized.percent}%"></div>
+      </div>
+      <div class="settings-usage-meta">${escHtml(`${normalized.remaining} left${normalized.window ? ` • ${normalized.window}` : ''}`)}</div>
+    </div>
+  `;
+}
+
+function renderUsagePanel(container, usageInfo, keys, { compact = false } = {}) {
+  if (!container) return;
+  const usage = usageInfo?.usage || {};
+  const availableKeys = keys.filter((key) => usage[key]);
+  if (!availableKeys.length) {
+    container.innerHTML = '<div class="settings-usage-empty">Usage data unavailable right now.</div>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="settings-usage-list ${compact ? 'compact' : ''}">
+      ${availableKeys.map((key) => buildUsageRow(key, usage[key], { compact })).join('')}
+    </div>
+  `;
+}
+
+function ensureUsagePanels(b) {
+  if (!b.querySelector('#tool-usage-panel')) {
+    const chatPane = b.querySelector('[data-pane="chat"]');
+    if (chatPane) {
+      const panel = document.createElement('div');
+      panel.id = 'tool-usage-panel';
+      panel.className = 'settings-usage-panel';
+      panel.innerHTML = '<div class="settings-usage-empty">Loading tool usageâ€¦</div>';
+      chatPane.appendChild(panel);
+    }
+  }
+
+  if (!b.querySelector('#account-usage-panel')) {
+    const planSection = b.querySelector('#plan-section');
+    const billingButton = b.querySelector('#billing-portal-btn');
+    if (planSection && billingButton) {
+      const panel = document.createElement('div');
+      panel.id = 'account-usage-panel';
+      panel.className = 'settings-usage-panel compact';
+      panel.innerHTML = '<div class="settings-usage-empty">Loading account usageâ€¦</div>';
+      planSection.insertBefore(panel, billingButton);
+    }
+  }
+}
+
+function setupUsagePanels(b) {
+  ensureUsagePanels(b);
+  const render = (usageInfo) => {
+    renderUsagePanel(b.querySelector('#tool-usage-panel'), usageInfo, TOOL_USAGE_KEYS);
+    renderUsagePanel(b.querySelector('#account-usage-panel'), usageInfo, ACCOUNT_USAGE_KEYS, { compact: true });
+  };
+
+  const handler = (msg) => {
+    if (!b.isConnected) return;
+    render(msg.usage || {});
+  };
+  const unsubscribe = on('account:usage', handler);
+  send({ type: 'account:getUsage', clientId: getClientId() });
+  return () => unsubscribe?.();
+}
+
 function markdownToRichHtml(markdown) {
   const source = String(markdown || '').trim();
   if (!source) return '<p></p>';
   const parsed = window.marked?.parse(source) || escHtml(source).replace(/\n/g, '<br>');
-  const sanitized = window.DOMPurify?.sanitize(parsed) || parsed;
-  return sanitized || '<p></p>';
+  return sanitizeEditableHtml(parsed);
 }
 
 function normalizeMarkdownBlock(text) {
@@ -561,7 +671,7 @@ function renderMemoriesList(b, memoryState) {
             <span>${escHtml(new Date(memory.updatedAt).toLocaleString())}</span>
           </div>
         </div>
-        <button class="memory-menu-btn" data-memory-menu="${escHtml(memory.id)}" aria-label="Memory options">···</button>
+        <button class="memory-menu-btn" data-memory-menu="${escHtml(memory.id)}" aria-label="Memory options">${menuDotsIcon()}</button>
       `}
     </div>
   `).join('');
@@ -595,7 +705,7 @@ function renderMemoriesList(b, memoryState) {
             });
           },
         },
-      ], { layer: 'modal' });
+      ], { layer: 'modal', triggerEl: event.currentTarget });
     });
   });
 

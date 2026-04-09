@@ -3,7 +3,7 @@ import { send, on, off } from './ws.js';
 import { currentSessionId } from './sessions.js';
 import {
   renderMarkdown, attachCodeCopyListeners, attachSvgPanelListeners,
-  escHtml, showContextMenu, showNotification, autoResize,
+  hydrateHtmlSandboxPlaceholders, escHtml, showContextMenu, showNotification, autoResize,
 } from './ui.js';
 import { renderFilePreviewRow, clearFilePreviewRow } from './app.js';
 import { getMediaObjectUrl, downloadMediaItem, openMediaPicker, mediaItemToAttachment } from './media.js';
@@ -16,6 +16,16 @@ let streamingSessionId = null; // track which session is streaming
 let autoScroll       = true;
 let pendingAssets    = [];
 let streamingDraftEdits = [];
+let currentHistory   = [];
+let streamingSegments = [];
+let streamingLiveTextSegmentIndex = -1;
+let streamingToolSegmentIndexById = new Map();
+let streamingStatusLabel = 'Thinking…';
+let streamingStartMeta = null;
+let streamingSourceHistory = [];
+
+const lastSessionRequests = new Map();
+const sessionErrorStates = new Map();
 
 const BULLET = '\u2022';
 
@@ -33,7 +43,7 @@ on('chat:start',            (msg) => { onChatStart(msg); });
 on('chat:token',            (msg) => { if (msg.sessionId === activeSessionId) onToken(msg.token); });
 on('chat:done',             (msg) => { onChatDone(msg); });
 on('chat:aborted',          (msg) => { onChatAborted(msg); });
-on('chat:error',            (msg) => { if (msg.sessionId === activeSessionId) onChatError(msg.error); });
+on('chat:error',            (msg) => { if (msg.sessionId === activeSessionId) onChatError(msg); });
 on('chat:asset',            (msg) => { if (msg.sessionId === activeSessionId) appendAsset(msg.asset); });
 on('chat:toolCall',         (msg) => { if (msg.sessionId === activeSessionId) handleLiveToolCall(msg.call); });
 on('chat:draftEdited',      (msg) => { if (msg.sessionId === activeSessionId) onDraftEdited(msg); });
@@ -98,18 +108,24 @@ function showChat() {
 
 export function renderHistory(history) {
   showChat();
+  currentHistory = Array.isArray(history) ? history : [];
   const box = document.getElementById('chat-messages');
   if (!box) return;
   box.innerHTML = '';
 
-  for (let i = 0; i < history.length; i++) {
-    const msg = history[i];
+  for (let i = 0; i < currentHistory.length; i++) {
+    const msg = currentHistory[i];
     const cleanMsg = { ...msg, content: stripSessionTag(msg.content) };
     if      (cleanMsg.role === 'user')      appendUserMsg(box, cleanMsg, i);
-    else if (cleanMsg.role === 'assistant') appendAssistantMsg(box, cleanMsg, i);
+    else if (cleanMsg.role === 'assistant') appendAssistantMsg(box, cleanMsg, i, currentHistory);
     else if (cleanMsg.role === 'image')     appendMediaMsg(box, 'image', cleanMsg.content);
     else if (cleanMsg.role === 'video')     appendMediaMsg(box, 'video', cleanMsg.content);
     else if (cleanMsg.role === 'audio')     appendMediaMsg(box, 'audio', cleanMsg.content);
+  }
+
+  const sessionError = activeSessionId ? sessionErrorStates.get(activeSessionId) : null;
+  if (sessionError) {
+    box.appendChild(buildAssistantErrorGroup(sessionError));
   }
 
   if (typeof renderMathInElement !== 'undefined') {
@@ -148,6 +164,7 @@ function appendUserMsg(box, msg, index) {
   // Render text (convert bullet chars back for display)
   const displayText = textWithBullets(text);
   bubble.innerHTML = renderMarkdown(displayText);
+  hydrateHtmlSandboxPlaceholders(bubble);
   attachCodeCopyListeners(bubble);
   attachSvgPanelListeners(bubble);
 
@@ -187,20 +204,12 @@ function appendUserMsg(box, msg, index) {
   box.appendChild(wrap);
 }
 
-function appendAssistantMsg(box, msg, index) {
+function appendAssistantMsg(box, msg, index, history = []) {
   const wrap = makeWrap(index);
   const bubble = document.createElement('div');
   bubble.className = 'msg-assistant';
-  bubble.innerHTML = renderMarkdown(msg.content || '');
-  attachCodeCopyListeners(bubble);
-  attachSvgPanelListeners(bubble);
 
-  if (msg.toolCalls?.length) {
-    const chipRow = document.createElement('div');
-    chipRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;';
-    msg.toolCalls.forEach(c => chipRow.appendChild(buildToolChip(c)));
-    bubble.appendChild(chipRow);
-  }
+  bubble.appendChild(buildAssistantTimeline(msg));
 
   if (msg.responseEdits?.length) {
     bubble.appendChild(buildResponseEditSummary(msg.responseEdits));
@@ -208,12 +217,96 @@ function appendAssistantMsg(box, msg, index) {
 
   wrap.appendChild(bubble);
 
-  wrap.appendChild(buildActions([
+  if (msg.versions?.length > 1) {
+    wrap.appendChild(buildVersionNav(msg, index, 'left'));
+  }
+
+  const actions = [
     { icon: copyIcon(), title: 'Copy', fn: () => copyText(msg.content || '') },
     { icon: editIcon(), title: 'Edit', fn: () => startAssistantEdit(wrap, index, msg) },
-  ], 'left'));
+    { icon: regenerateIcon(), title: 'Regenerate', fn: () => sendAssistantAction(index, 'regenerate') },
+  ];
+  if (canContinueAssistant(history, index)) {
+    actions.push({ icon: continueIcon(), title: 'Continue', fn: () => sendAssistantAction(index, 'continue') });
+  }
+
+  wrap.appendChild(buildActions(actions, 'left'));
 
   box.appendChild(wrap);
+}
+
+function canContinueAssistant(history = [], index = -1) {
+  if (!Array.isArray(history) || index < 0) return false;
+  for (let i = index + 1; i < history.length; i++) {
+    const role = history[i]?.role;
+    if (role === 'user' || role === 'assistant') return false;
+  }
+  return true;
+}
+
+function buildAssistantTimeline(msg = {}) {
+  const timeline = document.createElement('div');
+  timeline.className = 'assistant-timeline';
+
+  const segments = Array.isArray(msg.responseSegments) && msg.responseSegments.length
+    ? msg.responseSegments
+    : [{ type: 'text', text: msg.content || '' }];
+
+  segments.forEach((segment, index) => {
+    if (index > 0) timeline.appendChild(buildAssistantFlowDivider(segment.type));
+    if (segment.type === 'tool_call') timeline.appendChild(buildToolTimelineRow(segment, msg.toolCalls || []));
+    else timeline.appendChild(buildAssistantTextSegment(segment.text || ''));
+  });
+
+  return timeline;
+}
+
+function buildAssistantTextSegment(text) {
+  const segment = document.createElement('div');
+  segment.className = 'assistant-timeline-segment assistant-timeline-text';
+  const displayText = stripSessionTag(processDisplay(text || ''));
+  segment.innerHTML = renderMarkdown(displayText);
+  hydrateHtmlSandboxPlaceholders(segment);
+  attachCodeCopyListeners(segment);
+  attachSvgPanelListeners(segment);
+  return segment;
+}
+
+function buildAssistantFlowDivider(nextType = 'text') {
+  const divider = document.createElement('div');
+  divider.className = 'assistant-flow-divider';
+  divider.innerHTML = `
+    <span class="assistant-flow-line" aria-hidden="true"></span>
+    <span class="assistant-flow-label">${nextType === 'tool_call' ? 'Tool' : 'Reply'}</span>
+    <span class="assistant-flow-line" aria-hidden="true"></span>
+  `;
+  return divider;
+}
+
+function buildToolTimelineRow(segment, calls = []) {
+  const callId = segment?.callId;
+  const call = calls.find((entry) => entry.id === callId) || segment.call || { id: callId, name: 'tool' };
+  const row = document.createElement('div');
+  row.className = 'assistant-timeline-segment assistant-timeline-tool';
+  row.appendChild(buildToolChip(call));
+  return row;
+}
+
+function buildAssistantErrorGroup(errorState = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-group';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-assistant msg-assistant-error';
+  bubble.innerHTML = `
+    <div class="assistant-error-copy">${escHtml(errorState.error || 'Something went wrong.')}</div>
+    <button class="assistant-error-retry" type="button">
+      ${retryIcon()}
+      <span>Retry</span>
+    </button>
+  `;
+  bubble.querySelector('.assistant-error-retry')?.addEventListener('click', () => retryLastSessionRequest(activeSessionId));
+  wrap.appendChild(bubble);
+  return wrap;
 }
 
 function appendMediaMsg(box, type, content) {
@@ -327,14 +420,16 @@ function buildActions(items, side = 'left') {
   return div;
 }
 
-function buildVersionNav(msg, index) {
+function buildVersionNav(msg, index, side = 'right') {
   const nav     = document.createElement('div');
-  nav.className = 'msg-version-nav';
+  nav.className = `msg-version-nav msg-version-nav-${side}`;
   const total   = msg.versions.length;
   const cur     = (msg.currentVersionIdx ?? 0) + 1;
 
   const prev = document.createElement('button');
-  prev.innerHTML = '&#8249;'; prev.title = 'Previous version'; prev.disabled = cur <= 1;
+  prev.innerHTML = chevronLeftIcon();
+  prev.title = 'Previous version';
+  prev.disabled = cur <= 1;
   prev.addEventListener('click', () => send({ type: 'chat:selectVersion',
     sessionId: activeSessionId, messageIndex: index, versionIdx: (msg.currentVersionIdx ?? 0) - 1 }));
 
@@ -343,7 +438,9 @@ function buildVersionNav(msg, index) {
   lbl.style.cssText = 'min-width:36px;text-align:center;';
 
   const next = document.createElement('button');
-  next.innerHTML = '&#8250;'; next.title = 'Next version'; next.disabled = cur >= total;
+  next.innerHTML = chevronRightIcon();
+  next.title = 'Next version';
+  next.disabled = cur >= total;
   next.addEventListener('click', () => send({ type: 'chat:selectVersion',
     sessionId: activeSessionId, messageIndex: index, versionIdx: (msg.currentVersionIdx ?? 0) + 1 }));
 
@@ -371,6 +468,56 @@ function dlBtn(fn) {
   btn.className = 'media-download-btn'; btn.textContent = 'Download';
   btn.addEventListener('click', fn);
   return btn;
+}
+
+function toolLabel(name) {
+  const names = {
+    ollama_search: 'Web Search',
+    read_web_page: 'Read Page',
+    generate_image: 'Image Gen',
+    generate_video: 'Video Gen',
+    generate_audio: 'Audio Gen',
+    save_memory: 'Save Memory',
+    delete_memory: 'Delete Memory',
+    list_memories: 'List Memories',
+    edit_response_draft: 'Revise Draft',
+  };
+  return names[name] || name || 'Tool';
+}
+
+function toolIcon(name) {
+  switch (name) {
+    case 'ollama_search':
+      return searchIcon();
+    case 'read_web_page':
+      return fileIcon();
+    case 'generate_image':
+      return imageIcon();
+    case 'generate_video':
+      return videoIcon();
+    case 'generate_audio':
+      return audioIcon();
+    case 'save_memory':
+    case 'delete_memory':
+    case 'list_memories':
+      return memoryIcon();
+    case 'edit_response_draft':
+      return writeIcon();
+    default:
+      return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"/><path d="M2 12h20"/></svg>`;
+  }
+}
+
+function buildToolChip(call) {
+  const chip = document.createElement('button');
+  chip.className = 'msg-tool-call';
+  chip.dataset.state = call?.state || 'resolved';
+  chip.innerHTML = `
+    <span class="msg-tool-icon" aria-hidden="true">${toolIcon(call?.name)}</span>
+    <span>${escHtml(toolLabel(call?.name))}</span>
+  `;
+  chip.addEventListener('click', () => import('./modals.js').then(m => m.showToolCallModal(call)));
+  return chip;
 }
 
 async function resolveMediaUrl(contentRef) {
@@ -458,6 +605,38 @@ function attachIcon() {
 }
 function sendSvg() {
   return `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21L23 12 2 3v7l15 2-15 2v7z"/></svg>`;
+}
+
+function chevronLeftIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>`;
+}
+
+function chevronRightIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>`;
+}
+
+function regenerateIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.55-6.36L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.55 6.36L3 16"/></svg>`;
+}
+
+function continueIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4l14 8-14 8V4z"/></svg>`;
+}
+
+function retryIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15A9 9 0 1 1 23 10"/></svg>`;
+}
+
+function fileIcon() {
+  return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+}
+
+function memoryIcon() {
+  return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5V6H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1.2a6 6 0 0 0 11.6 0H19a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-2V4.5A2.5 2.5 0 0 0 14.5 2h-5z"/><path d="M9 6V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V6"/></svg>`;
+}
+
+function writeIcon() {
+  return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
 }
 
 // ── Inline editing ────────────────────────────────────────────────────────
@@ -627,7 +806,12 @@ function startUserEdit(wrap, index, msg, originalText, existingFiles = []) {
     const handler = (editMsg) => {
       if (editMsg.sessionId !== activeSessionId || editMsg.messageIndex !== index) return;
       off('chat:messageEdited', handler);
-      send({ type: 'chat:send', sessionId: activeSessionId, tools });
+      sendTrackedRequest({
+        type: 'chat:send',
+        sessionId: activeSessionId,
+        tools,
+        clientId: localStorage.getItem('ipai_client_id') || '',
+      });
     };
     on('chat:messageEdited', handler);
   });
@@ -683,6 +867,57 @@ function setupEditBulletConvert(ta) {
         ta.style.height = 'auto';
         ta.style.height = ta.scrollHeight + 'px';
       }
+    }
+  });
+}
+
+function getTextareaLineInfo(ta) {
+  const value = ta.value;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+  const lineEndIndex = value.indexOf('\n', end);
+  const lineEnd = lineEndIndex === -1 ? value.length : lineEndIndex;
+  const line = value.slice(lineStart, lineEnd);
+  return { value, start, end, lineStart, lineEnd, line };
+}
+
+function replaceTextareaContent(ta, from, to, nextText, cursorOffset = nextText.length) {
+  ta.value = ta.value.slice(0, from) + nextText + ta.value.slice(to);
+  const nextPos = from + cursorOffset;
+  ta.setSelectionRange(nextPos, nextPos);
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+}
+
+function setupEditBulletConvert(ta) {
+  ta.addEventListener('keydown', (e) => {
+    const { value, start, end, lineStart, lineEnd, line } = getTextareaLineInfo(ta);
+    const trimmed = line.trim();
+    const beforeCursor = value.slice(lineStart, start);
+
+    if (e.key === ' ' && beforeCursor === '-') {
+      e.preventDefault();
+      replaceTextareaContent(ta, lineStart, start, `${BULLET} `);
+      return;
+    }
+
+    if (e.key === 'Enter' && e.shiftKey && line.startsWith(`${BULLET} `)) {
+      e.preventDefault();
+      const nextLine = trimmed === BULLET ? '\n' : `\n${BULLET} `;
+      replaceTextareaContent(ta, start, end, nextLine);
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && line === `${BULLET} ` && start === end) {
+      e.preventDefault();
+      replaceTextareaContent(ta, lineStart, lineEnd, '', 0);
+      return;
+    }
+
+    if (e.key === 'Backspace' && start === end && line.startsWith(`${BULLET} `) && beforeCursor === `${BULLET} `) {
+      e.preventDefault();
+      replaceTextareaContent(ta, lineStart, lineStart + 2, '', 0);
     }
   });
 }
@@ -840,7 +1075,7 @@ function openEditAttachMenu(e, triggerEl, editAttachments, filePreviewRow) {
         });
       },
     },
-  ]);
+  ], { triggerEl });
 }
 
 function renderEditFilePreview(attachments, row) {
@@ -1117,6 +1352,326 @@ function appendAsset(asset) {
   if (autoScroll) box.scrollTop = box.scrollHeight;
 }
 
+function cloneRequestPayload(payload) {
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return payload ? { ...payload } : payload;
+  }
+}
+
+function clearRenderedSessionError() {
+  document.querySelectorAll('.msg-assistant-error').forEach((node) => {
+    node.closest('.msg-group')?.remove();
+  });
+}
+
+function rememberLastSessionRequest(sessionId, payload) {
+  if (!sessionId || !payload) return;
+  lastSessionRequests.set(sessionId, cloneRequestPayload(payload));
+}
+
+function sendTrackedRequest(payload, { remember = true } = {}) {
+  if (!payload?.sessionId) return false;
+  if (remember) rememberLastSessionRequest(payload.sessionId, payload);
+  sessionErrorStates.delete(payload.sessionId);
+  if (payload.sessionId === activeSessionId) clearRenderedSessionError();
+  return send(payload);
+}
+
+function retryLastSessionRequest(sessionId) {
+  const payload = lastSessionRequests.get(sessionId);
+  if (!payload) {
+    showNotification({ type: 'error', message: 'Nothing to retry yet.', duration: 2000 });
+    return;
+  }
+  sessionErrorStates.delete(sessionId);
+  if (sessionId === activeSessionId) clearRenderedSessionError();
+  send(payload);
+}
+
+function sendAssistantAction(messageIndex, action) {
+  if (!activeSessionId || isStreaming) return;
+  sendTrackedRequest({
+    type: 'chat:assistantAction',
+    sessionId: activeSessionId,
+    messageIndex,
+    action,
+    tools: getActiveTools(),
+    clientId: localStorage.getItem('ipai_client_id') || '',
+  });
+}
+
+function createGeneratedTextSegment(start = 0, end = null) {
+  return { type: 'text', text: '', generated: true, start, end };
+}
+
+function ensureLiveTextSegment() {
+  const segment = streamingSegments[streamingLiveTextSegmentIndex];
+  if (segment?.type === 'text' && segment.generated && segment.end == null) return segment;
+  const nextSegment = createGeneratedTextSegment(streamingText.length, null);
+  streamingSegments.push(nextSegment);
+  streamingLiveTextSegmentIndex = streamingSegments.length - 1;
+  return nextSegment;
+}
+
+function syncStreamingTextSegments() {
+  streamingSegments.forEach((segment) => {
+    if (segment?.type !== 'text' || !segment.generated) return;
+    const start = Math.max(0, segment.start || 0);
+    const end = typeof segment.end === 'number' ? segment.end : streamingText.length;
+    segment.text = streamingText.slice(start, Math.max(start, end));
+  });
+}
+
+function visibleStreamingSegments() {
+  syncStreamingTextSegments();
+  return streamingSegments.filter((segment) => {
+    if (!segment) return false;
+    if (segment.type === 'tool_call') return true;
+    return !!stripSessionTag(processDisplay(segment.text || '')).trim();
+  });
+}
+
+function hasStreamingContent() {
+  return visibleStreamingSegments().length > 0;
+}
+
+function streamingToolStatus(call = {}) {
+  if (call.state === 'resolved') return 'Thinkingâ€¦';
+  if (call.state === 'canceled') return `${toolLabel(call.name)} canceled`;
+  const names = {
+    ollama_search: 'Searching the webâ€¦',
+    read_web_page: 'Reading the pageâ€¦',
+    generate_image: 'Generating an imageâ€¦',
+    generate_video: 'Generating a videoâ€¦',
+    generate_audio: 'Generating audioâ€¦',
+    save_memory: 'Saving memoryâ€¦',
+    delete_memory: 'Deleting memoryâ€¦',
+    list_memories: 'Checking memoriesâ€¦',
+    edit_response_draft: 'Revising the draftâ€¦',
+  };
+  return names[call.name] || `${toolLabel(call.name)} runningâ€¦`;
+}
+
+function renderStreamingBubble() {
+  if (!streamingBubble) return;
+  streamingBubble.innerHTML = '';
+
+  const segments = visibleStreamingSegments();
+  if (segments.length) {
+    const timeline = document.createElement('div');
+    timeline.className = 'assistant-timeline assistant-timeline-live';
+    segments.forEach((segment, index) => {
+      if (index > 0) timeline.appendChild(buildAssistantFlowDivider(segment.type));
+      if (segment.type === 'tool_call') {
+        timeline.appendChild(buildToolTimelineRow(segment, segment.call ? [segment.call] : []));
+      } else {
+        timeline.appendChild(buildAssistantTextSegment(segment.text || ''));
+      }
+    });
+    streamingBubble.appendChild(timeline);
+  }
+
+  if (streamingDraftEdits.length) {
+    streamingBubble.appendChild(buildResponseEditSummary(streamingDraftEdits));
+  }
+
+  const status = document.createElement('div');
+  status.className = 'assistant-stream-status';
+  status.innerHTML = `
+    <span class="assistant-stream-spinner" aria-hidden="true">
+      <span class="assistant-stream-dot"></span>
+      <span class="assistant-stream-dot"></span>
+      <span class="assistant-stream-dot"></span>
+    </span>
+    <span class="assistant-stream-label">${escHtml(streamingStatusLabel || 'Thinkingâ€¦')}</span>
+  `;
+  streamingBubble.appendChild(status);
+}
+
+function clearStreamingState() {
+  streamingBubble = null;
+  streamingText = '';
+  pendingAssets = [];
+  streamingDraftEdits = [];
+  streamingSegments = [];
+  streamingLiveTextSegmentIndex = -1;
+  streamingToolSegmentIndexById = new Map();
+  streamingStatusLabel = 'Thinkingâ€¦';
+  streamingStartMeta = null;
+  streamingSourceHistory = [];
+}
+
+function onChatStart(msg) {
+  const sessionId = msg.sessionId;
+  isStreaming = true;
+  streamingSessionId = sessionId;
+  streamingText = '';
+  pendingAssets = [];
+  streamingDraftEdits = [];
+  streamingSegments = [];
+  streamingLiveTextSegmentIndex = -1;
+  streamingToolSegmentIndexById = new Map();
+  streamingStartMeta = { ...msg };
+  streamingSourceHistory = Array.isArray(currentHistory) ? [...currentHistory] : [];
+  streamingStatusLabel = msg.action === 'continue'
+    ? 'Continuing the responseâ€¦'
+    : msg.action === 'regenerate'
+      ? 'Regenerating responseâ€¦'
+      : 'Thinkingâ€¦';
+  sessionErrorStates.delete(sessionId);
+
+  if (sessionId !== activeSessionId) return;
+
+  clearRenderedSessionError();
+  showChat();
+
+  if (msg.streamKind === 'assistantAction') {
+    renderHistory(streamingSourceHistory.slice(0, Math.max(0, msg.messageIndex ?? 0)));
+  }
+
+  const box = document.getElementById('chat-messages');
+  if (!box) return;
+
+  streamingBubble = document.createElement('div');
+  streamingBubble.className = 'msg-assistant msg-generating';
+
+  if (msg.prefillText) {
+    streamingSegments.push({ type: 'text', text: msg.prefillText, generated: false });
+  }
+  streamingSegments.push(createGeneratedTextSegment(0, null));
+  streamingLiveTextSegmentIndex = streamingSegments.length - 1;
+
+  renderStreamingBubble();
+  box.appendChild(streamingBubble);
+  if (autoScroll) box.scrollTop = box.scrollHeight;
+  updateSendBtn(true);
+}
+
+function onToken(token) {
+  if (!streamingBubble) return;
+  ensureLiveTextSegment();
+  streamingText += token;
+  streamingStatusLabel = 'Thinkingâ€¦';
+  renderStreamingBubble();
+  if (autoScroll) {
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+}
+
+function onDraftEdited(msg) {
+  if (!streamingBubble) return;
+  streamingText = msg.text || streamingText;
+  if (msg.edit) streamingDraftEdits.push(msg.edit);
+  streamingStatusLabel = 'Revising responseâ€¦';
+  renderStreamingBubble();
+}
+
+function onChatDone(msg) {
+  const sessionId = msg.sessionId;
+  if (sessionId === streamingSessionId) {
+    isStreaming = false;
+    streamingSessionId = null;
+  }
+
+  if (sessionId === activeSessionId) {
+    sessionErrorStates.delete(sessionId);
+    updateSendBtn(false);
+    clearStreamingState();
+    if (msg.history) {
+      renderHistory(msg.history);
+    }
+  }
+}
+
+function onChatAborted(msg) {
+  const sessionId = msg.sessionId;
+  if (sessionId === streamingSessionId) {
+    isStreaming = false;
+    streamingSessionId = null;
+  }
+
+  if (sessionId === activeSessionId) {
+    updateSendBtn(false);
+    const restoreHistory = msg.history
+      || (streamingStartMeta?.streamKind === 'assistantAction' ? streamingSourceHistory : currentHistory);
+    clearStreamingState();
+    if (restoreHistory) renderHistory(restoreHistory);
+  }
+}
+
+function onChatError(msg) {
+  const sessionId = msg?.sessionId || activeSessionId;
+  const errorText = String(msg?.error || 'Something went wrong.');
+  const partial = hasStreamingContent() || pendingAssets.length > 0;
+
+  isStreaming = false;
+  streamingSessionId = null;
+  updateSendBtn(false);
+
+  if (sessionId === activeSessionId) {
+    if (partial && streamingBubble) {
+      streamingBubble.classList.remove('msg-generating');
+      renderStreamingBubble();
+      const note = document.createElement('div');
+      note.className = 'assistant-error-inline';
+      note.innerHTML = `
+        <span class="assistant-error-inline-copy">${escHtml(errorText)}</span>
+        <button class="assistant-error-inline-retry" type="button">
+          ${retryIcon()}
+          <span>Retry</span>
+        </button>
+      `;
+      note.querySelector('.assistant-error-inline-retry')?.addEventListener('click', () => retryLastSessionRequest(sessionId));
+      streamingBubble.appendChild(note);
+    } else {
+      sessionErrorStates.set(sessionId, { error: errorText });
+      const restoreHistory = streamingStartMeta?.streamKind === 'assistantAction' ? streamingSourceHistory : currentHistory;
+      clearStreamingState();
+      renderHistory(restoreHistory || []);
+      return;
+    }
+  }
+
+  clearStreamingState();
+}
+
+function handleLiveToolCall(call) {
+  if (!streamingBubble) return;
+
+  const existingIndex = streamingToolSegmentIndexById.get(call.id);
+  if (existingIndex == null) {
+    const liveSegment = ensureLiveTextSegment();
+    liveSegment.end = streamingText.length;
+    const toolIndex = streamingSegments.push({
+      type: 'tool_call',
+      callId: call.id,
+      call: { ...call },
+    }) - 1;
+    streamingToolSegmentIndexById.set(call.id, toolIndex);
+    streamingSegments.push(createGeneratedTextSegment(streamingText.length, null));
+    streamingLiveTextSegmentIndex = streamingSegments.length - 1;
+  } else {
+    const prior = streamingSegments[existingIndex] || {};
+    streamingSegments[existingIndex] = {
+      ...prior,
+      type: 'tool_call',
+      callId: call.id,
+      call: { ...(prior.call || {}), ...call },
+    };
+  }
+
+  streamingStatusLabel = streamingToolStatus(call);
+  renderStreamingBubble();
+
+  if (autoScroll) {
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+}
+
 // ── Submit ────────────────────────────────────────────────────────────────
 
 export function submitMessage(text, attachments = []) {
@@ -1173,7 +1728,7 @@ export function submitMessage(text, attachments = []) {
     if (autoScroll) box.scrollTop = box.scrollHeight;
   }
 
-  send({
+  sendTrackedRequest({
     type: 'chat:send',
     sessionId: activeSessionId,
     content,

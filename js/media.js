@@ -1,4 +1,4 @@
-import { loadAuth, getTempId } from './auth.js';
+import { loadAuth, getTempId, isAuthenticated, onAuthChange } from './auth.js';
 import {
   openModal,
   closeModal,
@@ -6,7 +6,7 @@ import {
   openConfirmModal,
   openTextPromptModal,
 } from './modals.js';
-import { escHtml, showContextMenu, showNotification } from './ui.js';
+import { escHtml, showContextMenu, showNotification, sanitizeEditableHtml } from './ui.js';
 import { on } from './ws.js';
 
 const mediaUrlCache = new Map();
@@ -25,6 +25,18 @@ const state = {
     selectedIds: new Set(),
   },
 };
+
+function menuDotsIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>`;
+}
+
+function canModifyMediaLibrary() {
+  return isAuthenticated();
+}
+
+function showMediaSignInRequired(message = 'Sign in to upload files.') {
+  showNotification({ type: 'info', message, duration: 2600 });
+}
 
 function authHeaders(extra = {}) {
   const headers = { ...extra };
@@ -209,6 +221,11 @@ async function getCurrentSessionId() {
 }
 
 export async function uploadFileToLibrary(file, { parentId = null, sessionId = null, kind = null } = {}) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to upload files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const body = await file.arrayBuffer();
   const res = await apiFetch('/api/media/upload', {
     method: 'POST',
@@ -227,6 +244,11 @@ export async function uploadFileToLibrary(file, { parentId = null, sessionId = n
 }
 
 export async function uploadTextToLibrary(name, content, { parentId = null, sessionId = null, richText = false } = {}) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to upload files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const body = new TextEncoder().encode(content);
   const res = await apiFetch('/api/media/upload', {
     method: 'POST',
@@ -274,17 +296,47 @@ export async function loadMediaText(id) {
 }
 
 export async function saveMediaText(id, payload) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to edit files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
+  const nextPayload = { ...payload };
+  if (typeof nextPayload.content === 'string' && state.editor?.mode === 'rich') {
+    nextPayload.content = sanitizeEditableHtml(nextPayload.content);
+  }
   const res = await apiFetch(`/api/media/${encodeURIComponent(id)}/text`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(nextPayload),
   });
   updateUsage(res.usage);
   await refreshMediaList();
   return res.item;
 }
 
+async function renameMediaItem(id, name) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to rename files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
+  const res = await apiFetch(`/api/media/${encodeURIComponent(id)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  updateUsage(res.usage);
+  await refreshAllMediaViews();
+  return res.item;
+}
+
 async function createFolder(name, parentId) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to create folders.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const res = await apiFetch('/api/media/folders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -296,6 +348,11 @@ async function createFolder(name, parentId) {
 }
 
 async function createDocument({ name, richText, parentId, sessionId = null }) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to create documents.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const res = await apiFetch('/api/media/documents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -319,6 +376,11 @@ async function trashItems(ids) {
 }
 
 async function restoreItems(ids) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to restore files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const res = await apiFetch('/api/media/restore', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -343,6 +405,11 @@ async function deleteItemsForever(ids) {
 }
 
 async function moveItems(ids, parentId = null) {
+  if (!canModifyMediaLibrary()) {
+    const err = new Error('Sign in to move files.');
+    err.code = 'media:auth_required';
+    throw err;
+  }
   const res = await apiFetch('/api/media/move', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -467,11 +534,11 @@ async function openEditor(item) {
     const editor = document.createElement('div');
     editor.className = 'media-rich-editor';
     editor.contentEditable = 'true';
-    editor.innerHTML = content || '<p></p>';
+    editor.innerHTML = sanitizeEditableHtml(content || '<p></p>');
     contentWrap.appendChild(editor);
     toolbar.classList.remove('hidden');
     renderRichTextToolbar(toolbar, editor);
-    state.editor.getValue = () => editor.innerHTML;
+    state.editor.getValue = () => sanitizeEditableHtml(editor.innerHTML);
   } else {
     const textarea = document.createElement('textarea');
     textarea.className = 'media-text-editor';
@@ -493,6 +560,10 @@ async function handleMediaItemClick(item) {
     return;
   }
   if (isTextLike(item)) {
+    if (!canModifyMediaLibrary()) {
+      await downloadMediaItem(item);
+      return;
+    }
     await openEditor(item);
     return;
   }
@@ -515,11 +586,12 @@ function renderSelectionBar() {
   }
 
   const downloadable = selected.filter((item) => item.type === 'file');
+  const canModify = canModifyMediaLibrary();
   bar.innerHTML = `
     <span>${selected.length} selected</span>
     <div class="sidebar-selection-actions">
       ${downloadable.length ? '<button class="sidebar-action-btn" id="media-bulk-download">Download</button>' : ''}
-      <button class="sidebar-action-btn" id="media-bulk-move">Move</button>
+      ${canModify ? '<button class="sidebar-action-btn" id="media-bulk-move">Move</button>' : ''}
       <button class="sidebar-action-btn danger" id="media-bulk-trash">Move to Trash</button>
     </div>
   `;
@@ -549,19 +621,23 @@ function renderSelectionBar() {
 function renderBreadcrumbs() {
   const el = document.getElementById('media-breadcrumbs');
   if (!el) return;
-  if (!state.breadcrumbs.length) {
+  const inFolder = !!state.parentId || state.breadcrumbs.length > 0;
+  if (!inFolder) {
     el.innerHTML = '';
     el.classList.add('hidden');
     return;
   }
   el.classList.remove('hidden');
   el.innerHTML = `
-    <span class="media-breadcrumb-label">Folder</span>
+    <button class="media-breadcrumb media-breadcrumb-root" data-id="">
+      Media
+    </button>
     ${state.breadcrumbs.map((crumb, index) => `
+      <span class="media-breadcrumb-sep">/</span>
       <button class="media-breadcrumb${index === state.breadcrumbs.length - 1 ? ' active' : ''}" data-id="${crumb.id}">
         ${escHtml(crumb.name)}
       </button>
-    `).join('<span class="media-breadcrumb-sep">/</span>')}
+    `).join('')}
   `;
   el.querySelectorAll('.media-breadcrumb').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -576,6 +652,7 @@ function openMediaActionMenu(event, item) {
   event.stopPropagation();
   const rect = event.currentTarget.getBoundingClientRect();
   const items = [];
+  const canModify = canModifyMediaLibrary();
 
   if (item.type === 'file') {
     items.push({
@@ -585,18 +662,43 @@ function openMediaActionMenu(event, item) {
     });
   }
 
-  items.push({
-    label: 'Move',
-    icon: 'MV',
-    onClick: () => {
-      openFolderPicker({
-        title: `Move ${item.name}`,
-        confirmLabel: 'Move Here',
-        startParentId: state.parentId,
-        onSelect: (parentId) => moveItems([item.id], parentId),
-      });
-    },
-  });
+  if (canModify) {
+    items.push({
+      label: 'Rename',
+      icon: 'RN',
+      onClick: () => {
+        openNamePromptModal({
+          title: 'Rename Item',
+          label: 'Name',
+          placeholder: item.name,
+          value: item.name,
+          confirmLabel: 'Rename',
+          onSubmit: async (name) => {
+            try {
+              await renameMediaItem(item.id, name);
+            } catch (err) {
+              handleMediaError(err, 'Unable to rename item');
+              return false;
+            }
+            return true;
+          },
+        });
+      },
+    });
+
+    items.push({
+      label: 'Move',
+      icon: 'MV',
+      onClick: () => {
+        openFolderPicker({
+          title: `Move ${item.name}`,
+          confirmLabel: 'Move Here',
+          startParentId: state.parentId,
+          onSelect: (parentId) => moveItems([item.id], parentId),
+        });
+      },
+    });
+  }
 
   items.push({
     label: 'Move to Trash',
@@ -616,6 +718,7 @@ function openMediaActionMenu(event, item) {
   showContextMenu(rect.right - 12, rect.bottom + 8, items, {
     compact: true,
     menuId: 'attach-context-menu',
+    triggerEl: event.currentTarget,
   });
 }
 
@@ -623,29 +726,32 @@ function openTrashItemMenu(event, item) {
   event.preventDefault();
   event.stopPropagation();
   const rect = event.currentTarget.getBoundingClientRect();
-  showContextMenu(rect.right - 12, rect.bottom + 8, [
-    {
+  const items = [];
+  if (canModifyMediaLibrary()) {
+    items.push({
       label: 'Restore',
       icon: 'RE',
       onClick: () => restoreItems([item.id]).catch((err) => handleMediaError(err, 'Unable to restore media')),
+    });
+  }
+  items.push({
+    label: 'Delete Forever',
+    icon: 'DEL',
+    danger: true,
+    onClick: () => {
+      openConfirmModal({
+        title: 'Delete Permanently',
+        message: 'Delete this item permanently? This cannot be undone.',
+        confirmLabel: 'Delete Forever',
+        danger: true,
+        onConfirm: () => deleteItemsForever([item.id]).catch((err) => handleMediaError(err, 'Unable to delete media permanently')),
+      });
     },
-    {
-      label: 'Delete Forever',
-      icon: 'DEL',
-      danger: true,
-      onClick: () => {
-        openConfirmModal({
-          title: 'Delete Permanently',
-          message: 'Delete this item permanently? This cannot be undone.',
-          confirmLabel: 'Delete Forever',
-          danger: true,
-          onConfirm: () => deleteItemsForever([item.id]).catch((err) => handleMediaError(err, 'Unable to delete media permanently')),
-        });
-      },
-    },
-  ], {
+  });
+  showContextMenu(rect.right - 12, rect.bottom + 8, items, {
     compact: true,
     menuId: 'attach-context-menu',
+    triggerEl: event.currentTarget,
   });
 }
 
@@ -690,16 +796,26 @@ function buildCompactMediaRows(items, { trash = false } = {}) {
         </span>
       </button>
       <button class="media-item-menu" data-media-menu="${escHtml(item.id)}" aria-label="Media options" title="Media options">
-        <span class="media-item-menu-dots" aria-hidden="true">...</span>
+        <span class="media-item-menu-dots" aria-hidden="true">${menuDotsIcon()}</span>
       </button>
     </div>
   `).join('');
+}
+
+function updateMediaCreateAccess() {
+  const btn = document.getElementById('media-create-btn');
+  if (!btn) return;
+  const locked = !canModifyMediaLibrary();
+  btn.classList.toggle('is-disabled', locked);
+  btn.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  btn.title = locked ? 'Sign in to upload files' : 'Create or upload media';
 }
 
 function renderMediaList() {
   renderBreadcrumbs();
   renderSelectionBar();
   renderUsagePanel();
+  updateMediaCreateAccess();
 
   const list = document.getElementById('media-list');
   if (!list) return;
@@ -707,7 +823,9 @@ function renderMediaList() {
     list.innerHTML = `
       <div class="sidebar-empty-state rich-empty-state">
         <strong>No files here yet</strong>
-        <span>Click <b>+</b> to upload or create files.</span>
+        <span>${canModifyMediaLibrary()
+          ? 'Use the <b>+</b> menu to upload files, write notes, or create folders.'
+          : 'Sign in to upload files, write notes, or create folders.'}</span>
       </div>
     `;
     return;
@@ -751,7 +869,7 @@ function renderTrashSelectionBar() {
   bar.innerHTML = `
     <span>${ids.length} selected</span>
     <div class="sidebar-selection-actions">
-      <button class="sidebar-action-btn" id="media-trash-restore-selected">Restore</button>
+      ${canModifyMediaLibrary() ? '<button class="sidebar-action-btn" id="media-trash-restore-selected">Restore</button>' : ''}
       <button class="sidebar-action-btn danger" id="media-trash-delete-selected">Delete Forever</button>
     </div>
   `;
@@ -832,6 +950,10 @@ function openNamePromptModal({ title, label, placeholder, value = '', confirmLab
 }
 
 function promptForFolder() {
+  if (!canModifyMediaLibrary()) {
+    showMediaSignInRequired('Sign in to create folders.');
+    return;
+  }
   openNamePromptModal({
     title: 'New Folder',
     label: 'Folder name',
@@ -850,6 +972,10 @@ function promptForFolder() {
 }
 
 function promptForDocument({ richText = false }) {
+  if (!canModifyMediaLibrary()) {
+    showMediaSignInRequired('Sign in to create files.');
+    return;
+  }
   const extension = richText ? '.html' : '.txt';
   const defaultName = richText ? 'Untitled Document.html' : 'Untitled Note.txt';
   openNamePromptModal({
@@ -902,6 +1028,38 @@ function openCreateMenu(event) {
   event.stopPropagation();
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
+  if (!canModifyMediaLibrary()) {
+    showContextMenu(rect.right - 10, rect.bottom + 10, [
+      {
+        label: 'Rich Text',
+        description: 'Sign in to create formatted documents.',
+        icon: 'RT',
+        disabled: true,
+      },
+      {
+        label: 'Plain Text',
+        description: 'Sign in to create text notes and files.',
+        icon: 'TXT',
+        disabled: true,
+      },
+      {
+        label: 'File Upload',
+        description: 'Sign in to upload files.',
+        icon: 'UP',
+        disabled: true,
+      },
+      {
+        label: 'Folder',
+        description: 'Sign in to create folders.',
+        icon: 'DIR',
+        disabled: true,
+      },
+    ], {
+      menuId: 'attach-context-menu',
+      triggerEl: event.currentTarget,
+    });
+    return;
+  }
   showContextMenu(rect.right - 10, rect.bottom + 10, [
     {
       label: 'Rich Text',
@@ -929,6 +1087,7 @@ function openCreateMenu(event) {
     },
   ], {
     menuId: 'attach-context-menu',
+    triggerEl: event.currentTarget,
   });
 }
 
@@ -1196,6 +1355,11 @@ export function initMediaSidebar() {
   });
 
   document.getElementById('media-upload-input')?.addEventListener('change', async function handleUploadInput() {
+    if (!canModifyMediaLibrary()) {
+      this.value = '';
+      showMediaSignInRequired('Sign in to upload files.');
+      return;
+    }
     const files = filterUploadableFiles(Array.from(this.files || []));
     if (!files.length) {
       this.value = '';
@@ -1225,4 +1389,11 @@ export function initMediaSidebar() {
   on('media:changed', () => {
     refreshAllMediaViews().catch(() => {});
   });
+
+  onAuthChange(() => {
+    updateMediaCreateAccess();
+    renderMediaList();
+  });
+
+  updateMediaCreateAccess();
 }

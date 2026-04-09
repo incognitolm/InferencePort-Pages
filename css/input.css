@@ -378,7 +378,7 @@
 
   /* ── Bottom input bar: sits just above TOS ── */
   .bottom-input-bar {
-    padding: 0 12px 4px !important;
+    padding: 0 12px calc(4px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   /* ── Welcome view: truly vertically centered ── */
