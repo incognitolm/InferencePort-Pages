@@ -11,6 +11,7 @@ import { on } from './ws.js';
 
 const mediaUrlCache = new Map();
 const DEFAULT_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
+const MAX_TEXT_UPLOAD_BYTES = 100 * 1024;
 
 const state = {
   parentId: null,
@@ -72,6 +73,20 @@ function kindIcon(item) {
   if (item.kind === 'rich_text') return '&#128221;';
   if (item.kind === 'text') return '&#128196;';
   return '&#128230;';
+}
+
+function isTextLikeFile(file) {
+  const name = String(file?.name || '').toLowerCase();
+  const mime = String(file?.type || '').toLowerCase();
+  return mime.startsWith('text/')
+    || mime === 'application/json'
+    || mime === 'application/javascript'
+    || mime === 'application/xml'
+    || /\.(txt|md|json|js|ts|css|py|html?|xml|csv|rtf)$/i.test(name);
+}
+
+function exceedsTextFileLimit(file) {
+  return isTextLikeFile(file) && Number(file?.size || 0) > MAX_TEXT_UPLOAD_BYTES;
 }
 
 function isTextLike(item) {
@@ -445,7 +460,7 @@ async function openEditor(item) {
   };
 
   titleEl.textContent = item.name;
-  metaEl.textContent = `${item.kind === 'rich_text' ? 'Rich text' : 'Text'} • ${bytesLabel(item.size || content.length)}`;
+  metaEl.textContent = `${item.kind === 'rich_text' ? 'Rich text' : 'Text'} / ${bytesLabel(item.size || content.length)}`;
   contentWrap.innerHTML = '';
 
   if (state.editor.mode === 'rich') {
@@ -556,6 +571,84 @@ function renderBreadcrumbs() {
   });
 }
 
+function openMediaActionMenu(event, item) {
+  event.preventDefault();
+  event.stopPropagation();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const items = [];
+
+  if (item.type === 'file') {
+    items.push({
+      label: 'Download',
+      icon: 'DL',
+      onClick: () => downloadMediaItem(item),
+    });
+  }
+
+  items.push({
+    label: 'Move',
+    icon: 'MV',
+    onClick: () => {
+      openFolderPicker({
+        title: `Move ${item.name}`,
+        confirmLabel: 'Move Here',
+        startParentId: state.parentId,
+        onSelect: (parentId) => moveItems([item.id], parentId),
+      });
+    },
+  });
+
+  items.push({
+    label: 'Move to Trash',
+    icon: 'TR',
+    danger: true,
+    onClick: () => {
+      openConfirmModal({
+        title: 'Move To Trash',
+        message: 'Move this item to trash?',
+        confirmLabel: 'Move to Trash',
+        danger: true,
+        onConfirm: () => trashItems([item.id]).catch((err) => handleMediaError(err, 'Unable to move item to trash')),
+      });
+    },
+  });
+
+  showContextMenu(rect.right - 12, rect.bottom + 8, items, {
+    compact: true,
+    menuId: 'attach-context-menu',
+  });
+}
+
+function openTrashItemMenu(event, item) {
+  event.preventDefault();
+  event.stopPropagation();
+  const rect = event.currentTarget.getBoundingClientRect();
+  showContextMenu(rect.right - 12, rect.bottom + 8, [
+    {
+      label: 'Restore',
+      icon: 'RE',
+      onClick: () => restoreItems([item.id]).catch((err) => handleMediaError(err, 'Unable to restore media')),
+    },
+    {
+      label: 'Delete Forever',
+      icon: 'DEL',
+      danger: true,
+      onClick: () => {
+        openConfirmModal({
+          title: 'Delete Permanently',
+          message: 'Delete this item permanently? This cannot be undone.',
+          confirmLabel: 'Delete Forever',
+          danger: true,
+          onConfirm: () => deleteItemsForever([item.id]).catch((err) => handleMediaError(err, 'Unable to delete media permanently')),
+        });
+      },
+    },
+  ], {
+    compact: true,
+    menuId: 'attach-context-menu',
+  });
+}
+
 function buildMediaRows(items, { trash = false } = {}) {
   return items.map((item) => `
     <div class="media-list-item${trash ? ' trash-item' : ''}" data-id="${escHtml(item.id)}">
@@ -581,6 +674,28 @@ function buildMediaRows(items, { trash = false } = {}) {
   `).join('');
 }
 
+function buildCompactMediaRows(items, { trash = false } = {}) {
+  return items.map((item) => `
+    <div class="media-list-item${trash ? ' trash-item' : ''}" data-id="${escHtml(item.id)}">
+      <label class="media-item-check">
+        <input type="checkbox" ${trash ? (state.trash.selectedIds.has(item.id) ? 'checked' : '') : (state.selectedIds.has(item.id) ? 'checked' : '')} data-media-check="${escHtml(item.id)}" />
+        <span class="selection-checkmark" aria-hidden="true"></span>
+      </label>
+      <button class="media-item-main" data-media-open="${escHtml(item.id)}">
+        <span class="media-item-icon">${kindIcon(item)}</span>
+        <span class="media-item-copy">
+          <span class="media-item-name">${escHtml(item.name)}</span>
+          <span class="media-item-kind">${escHtml(kindLabel(item))}</span>
+          ${item.type === 'folder' ? '' : `<span class="media-item-size">${bytesLabel(item.size)}</span>`}
+        </span>
+      </button>
+      <button class="media-item-menu" data-media-menu="${escHtml(item.id)}" aria-label="Media options" title="Media options">
+        <span class="media-item-menu-dots" aria-hidden="true">...</span>
+      </button>
+    </div>
+  `).join('');
+}
+
 function renderMediaList() {
   renderBreadcrumbs();
   renderSelectionBar();
@@ -598,7 +713,7 @@ function renderMediaList() {
     return;
   }
 
-  list.innerHTML = buildMediaRows(state.items);
+  list.innerHTML = buildCompactMediaRows(state.items);
 
   list.querySelectorAll('[data-media-check]').forEach((input) => {
     input.addEventListener('change', () => {
@@ -615,24 +730,10 @@ function renderMediaList() {
     });
   });
 
-  list.querySelectorAll('[data-media-download]').forEach((btn) => {
+  list.querySelectorAll('[data-media-menu]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const item = state.items.find((entry) => entry.id === btn.dataset.mediaDownload);
-      if (item) downloadMediaItem(item);
-    });
-  });
-
-  list.querySelectorAll('[data-media-trash]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      openConfirmModal({
-        title: 'Move To Trash',
-        message: 'Move this item to trash?',
-        confirmLabel: 'Move to Trash',
-        danger: true,
-        onConfirm: () => trashItems([btn.dataset.mediaTrash]).catch((err) => handleMediaError(err, 'Unable to move item to trash')),
-      });
+      const item = state.items.find((entry) => entry.id === btn.dataset.mediaMenu);
+      if (item) openMediaActionMenu(event, item);
     });
   });
 }
@@ -687,7 +788,7 @@ function renderMediaTrashOverlay() {
     return;
   }
 
-  list.innerHTML = buildMediaRows(state.trash.items, { trash: true });
+  list.innerHTML = buildCompactMediaRows(state.trash.items, { trash: true });
   renderTrashSelectionBar();
 
   list.querySelectorAll('[data-media-check]').forEach((input) => {
@@ -707,21 +808,10 @@ function renderMediaTrashOverlay() {
     });
   });
 
-  list.querySelectorAll('[data-media-restore]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      restoreItems([btn.dataset.mediaRestore]).catch((err) => handleMediaError(err, 'Unable to restore media'));
-    });
-  });
-
-  list.querySelectorAll('[data-media-delete]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      openConfirmModal({
-        title: 'Delete Permanently',
-        message: 'Delete this item permanently? This cannot be undone.',
-        confirmLabel: 'Delete Forever',
-        danger: true,
-        onConfirm: () => deleteItemsForever([btn.dataset.mediaDelete]).catch((err) => handleMediaError(err, 'Unable to delete media permanently')),
-      });
+  list.querySelectorAll('[data-media-menu]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const item = state.trash.items.find((entry) => entry.id === btn.dataset.mediaMenu);
+      if (item) openTrashItemMenu(event, item);
     });
   });
 }
@@ -787,11 +877,32 @@ function promptForDocument({ richText = false }) {
   });
 }
 
+function showTextUploadLimitNotice(file) {
+  showNotification({
+    type: 'warning',
+    message: `${file.name} is a text file over 100 KB and cannot be uploaded.`,
+    duration: 3200,
+  });
+}
+
+function filterUploadableFiles(files = []) {
+  const accepted = [];
+  files.forEach((file) => {
+    if (exceedsTextFileLimit(file)) {
+      showTextUploadLimitNotice(file);
+      return;
+    }
+    accepted.push(file);
+  });
+  return accepted;
+}
+
 function openCreateMenu(event) {
   event.preventDefault();
+  event.stopPropagation();
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
-  showContextMenu(rect.left, rect.bottom + 8, [
+  showContextMenu(rect.right - 10, rect.bottom + 10, [
     {
       label: 'Rich Text',
       description: 'Create a formatted document with headings, quotes, and links.',
@@ -816,7 +927,9 @@ function openCreateMenu(event) {
       icon: 'DIR',
       onClick: () => promptForFolder(),
     },
-  ]);
+  ], {
+    menuId: 'attach-context-menu',
+  });
 }
 
 export async function mediaItemToAttachment(item) {
@@ -1083,8 +1196,11 @@ export function initMediaSidebar() {
   });
 
   document.getElementById('media-upload-input')?.addEventListener('change', async function handleUploadInput() {
-    const files = Array.from(this.files || []);
-    if (!files.length) return;
+    const files = filterUploadableFiles(Array.from(this.files || []));
+    if (!files.length) {
+      this.value = '';
+      return;
+    }
     try {
       const sessionId = await getCurrentSessionId();
       for (const file of files) {

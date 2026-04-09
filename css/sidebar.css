@@ -1164,6 +1164,233 @@
   color: var(--text-muted);
 }
 
+/* Final sidebar and menu refinements */
+.sidebar-top-divider {
+  display: none;
+  height: 0;
+  background: transparent;
+}
+
+.sidebar-top-switcher {
+  padding-top: 10px;
+}
+
+.sidebar-top-switcher-inner {
+  margin-top: 0;
+  padding: 2px 2px 0;
+  align-items: center;
+}
+
+.sidebar-trash-btn {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-trash-btn:hover,
+.sidebar-trash-btn:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.sidebar-create-btn {
+  box-shadow: none;
+}
+
+.sidebar-create-btn:hover {
+  box-shadow: none;
+}
+
+.sidebar-create-plus {
+  transform: translateY(-1px);
+}
+
+#media-list {
+  padding-right: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+#media-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.media-list-item {
+  min-height: 66px;
+  gap: 9px;
+  padding: 8px 10px;
+}
+
+.media-item-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.media-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.media-item-name {
+  font-size: 12.5px;
+  line-height: 1.22;
+}
+
+.media-item-kind,
+.media-item-size {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.22;
+  color: var(--text-muted);
+}
+
+.media-item-menu {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  transition: background var(--transition), color var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.media-item-menu:hover,
+.media-item-menu:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+  transform: translateY(-1px);
+}
+
+.media-item-menu-dots,
+.session-menu-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  letter-spacing: -0.08em;
+  transform: translateY(-1px);
+}
+
+.media-item-menu-dots {
+  font-size: 13px;
+}
+
+.session-item .session-menu-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.session-menu-dots {
+  font-size: 12px;
+}
+
+.selection-checkmark::after {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -58%) rotate(-45deg) scale(0.75);
+}
+
+.deleted-chat-check input:checked + .selection-checkmark::after,
+.media-item-check input:checked + .selection-checkmark::after,
+.media-picker-select input:checked + .selection-checkmark::after {
+  transform: translate(-50%, -58%) rotate(-45deg) scale(1);
+}
+
+.media-usage-panel {
+  background: linear-gradient(180deg, rgba(24,24,29,0.95), rgba(18,18,22,0.98));
+}
+
+[data-theme="light"] .media-usage-panel {
+  background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(244,246,250,0.96));
+  border-color: rgba(20,24,33,0.08);
+  box-shadow: 0 -18px 28px rgba(125,136,159,0.14);
+}
+
+[data-theme="light"] .media-usage-track {
+  background: rgba(20,24,33,0.08);
+}
+
+[data-theme="light"] .media-usage-percent,
+[data-theme="light"] .media-usage-label {
+  color: rgba(20,24,33,0.92);
+}
+
+[data-theme="light"] .media-usage-values,
+[data-theme="light"] .media-usage-meta {
+  color: rgba(20,24,33,0.58);
+}
+
+.context-menu {
+  min-width: 156px;
+  padding: 4px;
+  border-radius: 16px;
+}
+
+.context-menu.context-menu-compact {
+  min-width: 172px;
+}
+
+.context-menu.context-menu-rich {
+  min-width: 222px;
+}
+
+.context-item {
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: 12px;
+}
+
+.context-item.has-description {
+  align-items: flex-start;
+  min-height: 0;
+  padding: 8px 10px;
+}
+
+.context-item-icon {
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.context-item.has-description .context-item-icon {
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
+}
+
+.context-item-copy {
+  justify-content: center;
+  gap: 1px;
+}
+
+.context-item-label {
+  font-size: 12.5px;
+  line-height: 1.22;
+}
+
+.context-item-description {
+  font-size: 10.5px;
+  line-height: 1.34;
+}
+
 @media (max-width: 768px) {
   .sidebar-top {
     flex-direction: column !important;

@@ -44,10 +44,13 @@ export function showContextMenu(x, y, items, options = {}) {
   const menu = options.menuElement
     || document.getElementById(options.menuId || 'session-context-menu');
   if (!menu) return;
+  const hasDescriptions = items.some((item) => !!item?.description);
   menu.innerHTML = '';
   menu.style.zIndex = options.layer === 'modal'
     ? 'calc(var(--z-modal) + 60)'
     : '';
+  menu.classList.toggle('context-menu-compact', !!options.compact);
+  menu.classList.toggle('context-menu-rich', hasDescriptions);
 
   for (const item of items) {
     if (item.separator) {
@@ -57,7 +60,10 @@ export function showContextMenu(x, y, items, options = {}) {
       continue;
     }
     const el = document.createElement('div');
-    el.className = 'context-item' + (item.danger ? ' danger' : '') + (item.warning ? ' warning' : '');
+    el.className = 'context-item'
+      + (item.danger ? ' danger' : '')
+      + (item.warning ? ' warning' : '')
+      + (item.description ? ' has-description' : '');
     if (item.icon) {
       const ic = document.createElement('span');
       ic.className = 'context-item-icon';

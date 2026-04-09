@@ -239,9 +239,16 @@ function renderChatSidebar() {
       if (event.target.closest('.session-menu-btn')) return;
       switchSession(el.dataset.id);
     });
+    el.addEventListener('contextmenu', (event) => {
+      if (event.target.closest('.session-menu-btn')) return;
+      event.preventDefault();
+      openSessionMenu(event, el.dataset.id);
+    });
   });
 
   list.querySelectorAll('.session-menu-btn').forEach((btn) => {
+    btn.setAttribute('aria-label', 'Chat options');
+    btn.innerHTML = '<span class="session-menu-dots" aria-hidden="true">...</span>';
     btn.addEventListener('click', (event) => {
       event.stopPropagation();
       openSessionMenu(event, btn.dataset.id);
@@ -395,7 +402,7 @@ function openSessionMenu(e, id) {
       onClick: () => deleteAllSessions(),
     },
   ];
-  showContextMenu(e.clientX, e.clientY, items);
+  showContextMenu(e.clientX, e.clientY, items, { compact: true });
 }
 
 function groupByDate(allSessions) {

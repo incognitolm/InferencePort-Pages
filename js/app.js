@@ -14,6 +14,8 @@ import {
   uploadTextToLibrary, mediaItemToAttachment, openMediaTrashView, refreshMediaList, closeMediaEditor,
 } from './media.js';
 
+const MAX_TEXT_UPLOAD_BYTES = 100 * 1024;
+
 // ── Apply theme immediately from localStorage (no flash) ──────────────────
 (function earlyTheme() {
   try {
@@ -376,7 +378,9 @@ function openAttachMenu(e, triggerEl) {
       icon: 'LIB',
       onClick: () => openMediaPicker({ onSelect: addLibraryItemsToDraft }),
     },
-  ]);
+  ], {
+    menuId: 'attach-context-menu',
+  });
 }
 
 document.getElementById('center-attach-btn')?.addEventListener('click', e =>
@@ -384,8 +388,30 @@ document.getElementById('center-attach-btn')?.addEventListener('click', e =>
 document.getElementById('bottom-attach-btn')?.addEventListener('click', e =>
   openAttachMenu(e, document.getElementById('bottom-attach-btn')));
 
+function isTextLikeFile(file) {
+  const name = String(file?.name || '').toLowerCase();
+  const mime = String(file?.type || '').toLowerCase();
+  return mime.startsWith('text/')
+    || mime === 'application/json'
+    || mime === 'application/javascript'
+    || mime === 'application/xml'
+    || /\.(txt|md|json|js|ts|css|py|html?|xml|csv|rtf)$/i.test(name);
+}
+
+function showTextFileLimitNotice(name) {
+  showNotification({
+    type: 'warning',
+    message: `${name} is over the 100 KB text-file limit.`,
+    duration: 3200,
+  });
+}
+
 document.getElementById('file-input')?.addEventListener('change', async function() {
   for (const file of this.files) {
+    if (isTextLikeFile(file) && Number(file.size || 0) > MAX_TEXT_UPLOAD_BYTES) {
+      showTextFileLimitNotice(file.name);
+      continue;
+    }
     const text = await file.text();
     await addTextAttachment(file.name, text);
   }
@@ -537,6 +563,21 @@ function setupBulletAutoConvert(textarea) {
   });
 }
 
+function bindNearLeftCaretFocus(container, textarea) {
+  if (!container || !textarea) return;
+  container.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    if (event.target === textarea || event.target.closest('button') || event.target.closest('.input-file-preview-row')) return;
+    const rect = textarea.getBoundingClientRect();
+    const withinLeftGutter = event.clientX >= rect.left - 10 && event.clientX < rect.left;
+    const withinVerticalBounds = event.clientY >= rect.top && event.clientY <= rect.bottom;
+    if (!withinLeftGutter || !withinVerticalBounds) return;
+    event.preventDefault();
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(0, 0);
+  });
+}
+
 [centerInput, bottomInput].forEach(input => {
   input?.addEventListener('paste', handlePaste);
   input?.addEventListener('dragover', e => e.preventDefault());
@@ -547,6 +588,9 @@ function setupBulletAutoConvert(textarea) {
   });
   setupBulletAutoConvert(input);
 });
+
+bindNearLeftCaretFocus(document.querySelector('.center-input-row'), centerInput);
+bindNearLeftCaretFocus(document.querySelector('.bottom-textarea-wrap'), bottomInput);
 
 // ── Auth/settings buttons ─────────────────────────────────────────────────
 

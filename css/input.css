@@ -507,6 +507,73 @@
   border-color: rgba(0,0,0,0.06);
 }
 
+/* Final input refinements */
+.center-input-container {
+  padding: 10px 16px;
+}
+
+.center-input-row {
+  min-height: 38px;
+  align-items: center;
+}
+
+.center-textarea {
+  min-height: 30px;
+  padding: 4px 0 3px;
+  line-height: 1.4;
+}
+
+.bottom-input-wrap {
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.bottom-textarea-wrap {
+  gap: 4px;
+  padding: 3px 0 3px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-theme="light"] .bottom-textarea-wrap {
+  background: transparent;
+  border-color: transparent;
+}
+
+.tool-row {
+  gap: 5px;
+  transform: translateY(-3px);
+}
+
+.tool-btn-sm {
+  padding: 3px 10px;
+}
+
+.bottom-textarea {
+  min-height: 28px;
+  padding: 3px 0 4px;
+  line-height: 1.4;
+}
+
+#tos-banner a {
+  color: rgba(255,255,255,0.68);
+}
+
+[data-theme="light"] #tos-banner {
+  color: rgba(20,24,33,0.5);
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(246,247,250,0.98));
+}
+
+[data-theme="light"] #tos-banner a {
+  color: rgba(64,81,104,0.82);
+}
+
+[data-theme="light"] #tos-banner a:hover {
+  color: rgba(32,48,68,0.96);
+}
+
 @media (max-width: 768px) {
   .welcome-input-wrap {
     padding: 0 6px;
