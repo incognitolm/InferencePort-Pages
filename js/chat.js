@@ -825,51 +825,51 @@ function startUserEdit(wrap, index, msg, originalText, existingFiles = []) {
   ta.setSelectionRange(ta.value.length, ta.value.length);
 }
 
-function setupEditBulletConvert(ta) {
-  ta.addEventListener('keydown', (e) => {
-    const val = ta.value;
-    const pos = ta.selectionStart;
+// function setupEditBulletConvert(ta) {
+//   ta.addEventListener('keydown', (e) => {
+//     const val = ta.value;
+//     const pos = ta.selectionStart;
 
-    if (e.key === ' ') {
-      const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
-      const beforeCursor = val.slice(lineStart, pos);
-      if (beforeCursor === '-') {
-        e.preventDefault();
-        const newVal = val.slice(0, lineStart) + BULLET + ' ' + val.slice(pos);
-        ta.value = newVal;
-        const newPos = lineStart + 2;
-        ta.setSelectionRange(newPos, newPos);
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
-        return;
-      }
-    }
+//     if (e.key === ' ') {
+//       const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+//       const beforeCursor = val.slice(lineStart, pos);
+//       if (beforeCursor === '-') {
+//         e.preventDefault();
+//         const newVal = val.slice(0, lineStart) + BULLET + ' ' + val.slice(pos);
+//         ta.value = newVal;
+//         const newPos = lineStart + 2;
+//         ta.setSelectionRange(newPos, newPos);
+//         ta.style.height = 'auto';
+//         ta.style.height = ta.scrollHeight + 'px';
+//         return;
+//       }
+//     }
 
-    if (e.key === 'Backspace') {
-      const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
-      const beforeCursor = val.slice(lineStart, pos);
-      if (beforeCursor === BULLET + ' ') {
-        e.preventDefault();
-        const newVal = val.slice(0, lineStart) + '- ' + val.slice(pos);
-        ta.value = newVal;
-        const newPos = lineStart + 2;
-        ta.setSelectionRange(newPos, newPos);
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
-        return;
-      }
-      if (beforeCursor === BULLET) {
-        e.preventDefault();
-        const newVal = val.slice(0, lineStart) + '-' + val.slice(pos);
-        ta.value = newVal;
-        const newPos = lineStart + 1;
-        ta.setSelectionRange(newPos, newPos);
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
-      }
-    }
-  });
-}
+//     if (e.key === 'Backspace') {
+//       const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+//       const beforeCursor = val.slice(lineStart, pos);
+//       if (beforeCursor === BULLET + ' ') {
+//         e.preventDefault();
+//         const newVal = val.slice(0, lineStart) + '- ' + val.slice(pos);
+//         ta.value = newVal;
+//         const newPos = lineStart + 2;
+//         ta.setSelectionRange(newPos, newPos);
+//         ta.style.height = 'auto';
+//         ta.style.height = ta.scrollHeight + 'px';
+//         return;
+//       }
+//       if (beforeCursor === BULLET) {
+//         e.preventDefault();
+//         const newVal = val.slice(0, lineStart) + '-' + val.slice(pos);
+//         ta.value = newVal;
+//         const newPos = lineStart + 1;
+//         ta.setSelectionRange(newPos, newPos);
+//         ta.style.height = 'auto';
+//         ta.style.height = ta.scrollHeight + 'px';
+//       }
+//     }
+//   });
+// }
 
 function getTextareaLineInfo(ta) {
   const value = ta.value;
