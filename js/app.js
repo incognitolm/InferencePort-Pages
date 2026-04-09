@@ -562,7 +562,7 @@ function handlePaste(e) {
 // When "- " is typed at the start of a line, convert to "• " (bullet marker)
 // and render it visually as a bullet. Backspace after bullet reverts to "- ".
 
-function setupBulletAutoConvert(textarea) {
+function setupBulletAutoConvertLegacy(textarea) {
   if (!textarea) return;
 
   // Track bullet positions: Map<lineIndex, true>
