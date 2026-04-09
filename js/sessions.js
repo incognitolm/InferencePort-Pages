@@ -1,10 +1,13 @@
-// sessions.js - Session list management
 import { send, on } from './ws.js';
 import { showContextMenu } from './ui.js';
 import { showShareModal } from './modals.js';
 
 export let sessions = [];
 export let currentSessionId = null;
+
+let deletedChats = [];
+let chatSidebarView = 'active';
+const deletedSelection = new Set();
 
 const sessionListeners = new Set();
 export function onSessionChange(fn) {
@@ -13,60 +16,58 @@ export function onSessionChange(fn) {
 }
 
 function notify(event, data) {
-  sessionListeners.forEach(fn => fn(event, data));
+  sessionListeners.forEach((fn) => fn(event, data));
 }
-
-// ── Server events ─────────────────────────────────────────────────────────
 
 on('sessions:list', (msg) => {
   sessions = msg.sessions || [];
-  renderSessions();
+  renderChatSidebar();
 });
 
 on('sessions:created', (msg) => {
-  const existing = sessions.findIndex(s => s.id === msg.session.id);
+  const existing = sessions.findIndex((session) => session.id === msg.session.id);
   if (existing === -1) sessions.unshift(msg.session);
   else sessions[existing] = msg.session;
-  renderSessions();
+  renderChatSidebar();
   notify('created', msg.session);
 });
 
 on('sessions:deleted', (msg) => {
-  sessions = sessions.filter(s => s.id !== msg.sessionId);
+  sessions = sessions.filter((session) => session.id !== msg.sessionId);
   if (currentSessionId === msg.sessionId) {
     currentSessionId = sessions[0]?.id || null;
     notify('switched', currentSessionId);
   }
-  renderSessions();
+  requestDeletedChats();
+  renderChatSidebar();
 });
 
 on('sessions:deletedAll', () => {
   sessions = [];
   currentSessionId = null;
-  renderSessions();
+  requestDeletedChats();
+  renderChatSidebar();
   notify('switched', null);
 });
 
 on('sessions:renamed', (msg) => {
-  const s = sessions.find(s => s.id === msg.sessionId);
-  if (s) s.name = msg.name;
-  renderSessions();
+  const session = sessions.find((entry) => entry.id === msg.sessionId);
+  if (session) session.name = msg.name;
+  renderChatSidebar();
 });
 
 on('sessions:data', (msg) => {
-  const existing = sessions.findIndex(s => s.id === msg.session.id);
+  const existing = sessions.findIndex((session) => session.id === msg.session.id);
   if (existing >= 0) sessions[existing] = msg.session;
   notify('data', msg.session);
 });
 
 on('auth:ok', (msg) => {
   sessions = msg.sessions || [];
-  renderSessions();
-  // On login, show the most recent session if one exists,
-  // otherwise show the welcome screen (don't auto-create).
-  if (sessions.length > 0) {
-    switchSession(sessions[0].id);
-  } else {
+  requestDeletedChats();
+  renderChatSidebar();
+  if (sessions.length > 0) switchSession(sessions[0].id);
+  else {
     currentSessionId = null;
     notify('switched', null);
   }
@@ -74,51 +75,57 @@ on('auth:ok', (msg) => {
 
 on('auth:guestOk', (msg) => {
   sessions = msg.sessions || [];
-  renderSessions();
-  // Show welcome screen; session is created lazily when user sends first message.
-  if (sessions.length > 0) {
-    switchSession(sessions[0].id);
-  } else {
+  requestDeletedChats();
+  renderChatSidebar();
+  if (sessions.length > 0) switchSession(sessions[0].id);
+  else {
     currentSessionId = null;
     notify('switched', null);
   }
 });
 
 on('chat:done', (msg) => {
-  const s = sessions.find(s => s.id === msg.sessionId);
-  if (s) {
-    s.history = msg.history;
-    if (msg.name) s.name = msg.name;
-    sessions.sort((a, b) => {
-      const aTime = a.history?.at(-1)?.timestamp || a.created;
-      const bTime = b.history?.at(-1)?.timestamp || b.created;
-      return bTime - aTime;
-    });
-    renderSessions();
-  }
+  const session = sessions.find((entry) => entry.id === msg.sessionId);
+  if (!session) return;
+  session.history = msg.history;
+  if (msg.name) session.name = msg.name;
+  sessions.sort((a, b) => {
+    const aTime = a.history?.at(-1)?.timestamp || a.created;
+    const bTime = b.history?.at(-1)?.timestamp || b.created;
+    return bTime - aTime;
+  });
+  renderChatSidebar();
 });
 
 on('sessions:imported', (msg) => {
   sessions.unshift(msg.session);
-  renderSessions();
+  renderChatSidebar();
   switchSession(msg.session.id);
 });
 
-// ── Actions ───────────────────────────────────────────────────────────────
+on('trash:chats:list', (msg) => {
+  deletedChats = msg.items || [];
+  deletedSelection.clear();
+  renderChatSidebar();
+});
 
-/**
- * createNewSession is now "lazy" for the new-chat button:
- * the button just navigates to the welcome screen.
- * An actual session is only created when the user sends their first message
- * (handled in app.js triggerCenterSend).
- *
- * Call createNewSession() directly when you really need the session to exist
- * immediately (e.g. from triggerCenterSend in app.js).
- */
+on('trash:chats:restored', (msg) => {
+  const restored = msg.sessions || [];
+  restored.forEach((session) => {
+    if (!sessions.some((existing) => existing.id === session.id)) sessions.unshift(session);
+  });
+  requestDeletedChats();
+  renderChatSidebar();
+});
+
+on('trash:chats:changed', () => {
+  requestDeletedChats();
+});
+
 export function showWelcomeScreen() {
   currentSessionId = null;
-  renderSessions();            // deselect active item in sidebar
-  notify('switched', null);   // app.js will show the welcome view
+  renderChatSidebar();
+  notify('switched', null);
 }
 
 export function createNewSession() {
@@ -127,83 +134,175 @@ export function createNewSession() {
 
 export function switchSession(id) {
   currentSessionId = id;
-  renderSessions();
+  renderChatSidebar();
   send({ type: 'sessions:get', sessionId: id });
   notify('switched', id);
 }
 
 export function deleteSession(id) {
+  if (!confirm('Move this chat to Recently Deleted?')) return;
   send({ type: 'sessions:delete', sessionId: id });
 }
 
 export function deleteAllSessions() {
+  if (!confirm('Move all chats to Recently Deleted?')) return;
   send({ type: 'sessions:deleteAll' });
 }
 
 export function renameSession(id, name) {
   send({ type: 'sessions:rename', sessionId: id, name });
-  const s = sessions.find(s => s.id === id);
-  if (s) s.name = name;
-  renderSessions();
+  const session = sessions.find((entry) => entry.id === id);
+  if (session) session.name = name;
+  renderChatSidebar();
 }
 
 export function requestSessions() {
   send({ type: 'sessions:list' });
 }
 
-export function getCurrentSession() {
-  return sessions.find(s => s.id === currentSessionId) || null;
+export function requestDeletedChats() {
+  send({ type: 'trash:chats:list' });
 }
 
-// ── Render ────────────────────────────────────────────────────────────────
+export function setChatSidebarView(view) {
+  chatSidebarView = view === 'deleted' ? 'deleted' : 'active';
+  renderChatSidebar();
+}
 
-function renderSessions() {
+export function getCurrentSession() {
+  return sessions.find((session) => session.id === currentSessionId) || null;
+}
+
+function renderChatSidebar() {
+  const chatPane = document.getElementById('sidebar-chat-pane');
+  if (!chatPane) return;
+  document.querySelectorAll('[data-chat-view]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.chatView === chatSidebarView);
+  });
+  document.getElementById('session-list')?.classList.toggle('hidden', chatSidebarView !== 'active');
+  document.getElementById('deleted-chat-list')?.classList.toggle('hidden', chatSidebarView !== 'deleted');
+
+  if (chatSidebarView === 'active') renderActiveSessions();
+  else renderDeletedChats();
+}
+
+function renderActiveSessions() {
   const list = document.getElementById('session-list');
   if (!list) return;
 
   if (sessions.length === 0) {
-    list.innerHTML = `<div style="padding:12px 10px;font-size:12px;color:var(--text-muted)">No chats yet</div>`;
+    list.innerHTML = `<div class="sidebar-empty-state">No chats yet</div>`;
     return;
   }
 
-  // Group by date
   const groups = groupByDate(sessions);
-  let html = '';
-  for (const [label, group] of groups) {
-    html += `<div class="session-date-label">${escHtml(label)}</div>`;
-    for (const s of group) {
-      const active = s.id === currentSessionId ? ' active' : '';
-      html += `
-        <div class="session-item${active}" data-id="${escHtml(s.id)}">
-          <span class="session-name" data-id="${escHtml(s.id)}">${escHtml(s.name || 'New Chat')}</span>
-          <button class="session-menu-btn" data-id="${escHtml(s.id)}" title="Options">···</button>
-        </div>`;
-    }
-  }
-  list.innerHTML = html;
+  list.innerHTML = groups.map(([label, group]) => `
+    <div class="session-group">
+      <div class="session-date-label">${escHtml(label)}</div>
+      ${group.map((session) => `
+        <div class="session-item${session.id === currentSessionId ? ' active' : ''}" data-id="${escHtml(session.id)}">
+          <span class="session-name" data-id="${escHtml(session.id)}">${escHtml(session.name || 'New Chat')}</span>
+          <button class="session-menu-btn" data-id="${escHtml(session.id)}" title="Options">···</button>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
 
-  // Session click
-  list.querySelectorAll('.session-item').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.session-menu-btn')) return;
+  list.querySelectorAll('.session-item').forEach((el) => {
+    el.addEventListener('click', (event) => {
+      if (event.target.closest('.session-menu-btn')) return;
       switchSession(el.dataset.id);
     });
   });
 
-  // Menu button
-  list.querySelectorAll('.session-menu-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openSessionMenu(e, btn.dataset.id);
+  list.querySelectorAll('.session-menu-btn').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openSessionMenu(event, btn.dataset.id);
     });
   });
 
-  // Inline rename on name click (double click)
-  list.querySelectorAll('.session-name').forEach(el => {
-    el.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
+  list.querySelectorAll('.session-name').forEach((el) => {
+    el.addEventListener('dblclick', (event) => {
+      event.stopPropagation();
       startInlineRename(el);
     });
+  });
+}
+
+function renderDeletedChats() {
+  const list = document.getElementById('deleted-chat-list');
+  const bar = document.getElementById('deleted-chat-selection-bar');
+  if (!list || !bar) return;
+
+  if (deletedChats.length === 0) {
+    list.innerHTML = `<div class="sidebar-empty-state">No recently deleted chats</div>`;
+    bar.classList.add('hidden');
+    return;
+  }
+
+  list.innerHTML = deletedChats.map((chat) => `
+    <div class="deleted-chat-item" data-id="${escHtml(chat.id)}">
+      <label class="deleted-chat-check">
+        <input type="checkbox" ${deletedSelection.has(chat.id) ? 'checked' : ''} data-chat-check="${escHtml(chat.id)}" />
+      </label>
+      <div class="deleted-chat-copy">
+        <div class="deleted-chat-name">${escHtml(chat.name || 'Deleted Chat')}</div>
+        <div class="deleted-chat-meta">Deleted ${new Date(chat.deletedAt).toLocaleString()}</div>
+      </div>
+      <div class="deleted-chat-actions">
+        <button class="deleted-chat-action" data-chat-restore="${escHtml(chat.id)}">Restore</button>
+        <button class="deleted-chat-action danger" data-chat-delete="${escHtml(chat.id)}">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('[data-chat-check]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.checked) deletedSelection.add(input.dataset.chatCheck);
+      else deletedSelection.delete(input.dataset.chatCheck);
+      renderDeletedChatSelectionBar();
+    });
+  });
+
+  list.querySelectorAll('[data-chat-restore]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      send({ type: 'trash:chats:restore', ids: [btn.dataset.chatRestore] });
+    });
+  });
+
+  list.querySelectorAll('[data-chat-delete]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!confirm('Delete this chat permanently? This cannot be undone.')) return;
+      send({ type: 'trash:chats:deleteForever', ids: [btn.dataset.chatDelete] });
+    });
+  });
+
+  renderDeletedChatSelectionBar();
+}
+
+function renderDeletedChatSelectionBar() {
+  const bar = document.getElementById('deleted-chat-selection-bar');
+  if (!bar) return;
+  if (!deletedSelection.size) {
+    bar.classList.add('hidden');
+    bar.innerHTML = '';
+    return;
+  }
+
+  const ids = [...deletedSelection];
+  bar.innerHTML = `
+    <span>${ids.length} selected</span>
+    <button class="sidebar-action-btn" id="deleted-chat-restore-selected">Restore</button>
+    <button class="sidebar-action-btn danger" id="deleted-chat-delete-selected">Delete Forever</button>
+  `;
+  bar.classList.remove('hidden');
+  bar.querySelector('#deleted-chat-restore-selected')?.addEventListener('click', () => {
+    send({ type: 'trash:chats:restore', ids });
+  });
+  bar.querySelector('#deleted-chat-delete-selected')?.addEventListener('click', () => {
+    if (!confirm('Delete the selected chats permanently? This cannot be undone.')) return;
+    send({ type: 'trash:chats:deleteForever', ids });
   });
 }
 
@@ -243,20 +342,18 @@ function openSessionMenu(e, id) {
     },
     { separator: true },
     {
-      label: 'Delete', icon: '🗑️', danger: true,
+      label: 'Move to Recently Deleted', icon: '🗑️', danger: true,
       onClick: () => deleteSession(id),
     },
     {
       label: 'Delete All Chats', icon: '⚠️', danger: true,
-      onClick: () => {
-        if (confirm('Delete all chats? This cannot be undone.')) deleteAllSessions();
-      },
+      onClick: () => deleteAllSessions(),
     },
   ];
   showContextMenu(e.clientX, e.clientY, items);
 }
 
-function groupByDate(sessions) {
+function groupByDate(allSessions) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterday = today - 86400000;
@@ -269,17 +366,17 @@ function groupByDate(sessions) {
     ['Older', []],
   ]);
 
-  for (const s of sessions) {
-    const t = s.created || 0;
-    if (t >= today) groups.get('Today').push(s);
-    else if (t >= yesterday) groups.get('Yesterday').push(s);
-    else if (t >= week) groups.get('This Week').push(s);
-    else groups.get('Older').push(s);
+  for (const session of allSessions) {
+    const t = session.created || 0;
+    if (t >= today) groups.get('Today').push(session);
+    else if (t >= yesterday) groups.get('Yesterday').push(session);
+    else if (t >= week) groups.get('This Week').push(session);
+    else groups.get('Older').push(session);
   }
 
-  return [...groups.entries()].filter(([, g]) => g.length > 0);
+  return [...groups.entries()].filter(([, group]) => group.length > 0);
 }
 
 function escHtml(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

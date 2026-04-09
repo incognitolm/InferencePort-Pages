@@ -12,13 +12,18 @@ function getOverlay() { return overlay || (overlay = document.getElementById('mo
 function getBox()     { return box     || (box     = document.getElementById('modal-box')); }
 
 let secondaryOverlay = null;
+let modalCleanup = null;
 
 export function openModal(html, opts = {}) {
   const o = getOverlay(), b = getBox();
+  modalCleanup?.();
+  modalCleanup = null;
   b.className = 'modal-box' + (opts.wide ? ' wide' : '');
   b.innerHTML = html;
   o.classList.remove('hidden');
-  if (opts.onOpen) opts.onOpen(b);
+  const cleanup = opts.onOpen?.(b);
+  if (typeof cleanup === 'function') modalCleanup = cleanup;
+  else if (typeof opts.onClose === 'function') modalCleanup = opts.onClose;
   o.onclick = (e) => { if (e.target === o) closeModal(); };
   document.addEventListener('keydown', escHandler);
 }
@@ -27,6 +32,8 @@ const escHandler = (e) => { if (e.key === 'Escape') { if (secondaryOverlay) clos
 
 export function closeModal() {
   if (secondaryOverlay) closeSecondaryModal();
+  modalCleanup?.();
+  modalCleanup = null;
   getOverlay().classList.add('hidden');
   getBox().innerHTML = '';
   document.removeEventListener('keydown', escHandler);
@@ -280,6 +287,8 @@ export function showToolCallModal(call) {
   const names = {
     ollama_search: 'Web Search', read_web_page: 'Read Web Page',
     generate_image: 'Image Generation', generate_video: 'Video Generation', generate_audio: 'Audio Generation',
+    save_memory: 'Save Memory', delete_memory: 'Delete Memory', list_memories: 'List Memories',
+    edit_response_draft: 'Revise Draft',
   };
   const displayName = names[call.name] || call.name;
 

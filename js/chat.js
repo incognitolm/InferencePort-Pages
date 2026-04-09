@@ -6,6 +6,7 @@ import {
   escHtml, showNotification, autoResize,
 } from './ui.js';
 import { renderFilePreviewRow, clearFilePreviewRow } from './app.js';
+import { getMediaObjectUrl, downloadMediaItem } from './media.js';
 
 let activeSessionId = null;
 let isStreaming      = false;
@@ -14,6 +15,7 @@ let streamingText    = '';
 let streamingSessionId = null; // track which session is streaming
 let autoScroll       = true;
 let pendingAssets    = [];
+let streamingDraftEdits = [];
 
 const BULLET = '\u2022';
 
@@ -34,6 +36,7 @@ on('chat:aborted',          (msg) => { onChatAborted(msg); });
 on('chat:error',            (msg) => { if (msg.sessionId === activeSessionId) onChatError(msg.error); });
 on('chat:asset',            (msg) => { if (msg.sessionId === activeSessionId) appendAsset(msg.asset); });
 on('chat:toolCall',         (msg) => { if (msg.sessionId === activeSessionId) handleLiveToolCall(msg.call); });
+on('chat:draftEdited',      (msg) => { if (msg.sessionId === activeSessionId) onDraftEdited(msg); });
 on('chat:messageEdited',    (msg) => { if (msg.sessionId === activeSessionId) renderHistory(msg.history); });
 on('chat:versionSelected',  (msg) => { if (msg.sessionId === activeSessionId) renderHistory(msg.history); });
 
@@ -199,6 +202,10 @@ function appendAssistantMsg(box, msg, index) {
     bubble.appendChild(chipRow);
   }
 
+  if (msg.responseEdits?.length) {
+    bubble.appendChild(buildResponseEditSummary(msg.responseEdits));
+  }
+
   wrap.appendChild(bubble);
 
   wrap.appendChild(buildActions([
@@ -213,22 +220,32 @@ function appendMediaMsg(box, type, content) {
   const wrap = document.createElement('div');
   wrap.className = 'msg-media';
 
+  const contentRef = typeof content === 'string'
+    ? { src: content, name: type === 'image' ? 'image.png' : type === 'video' ? 'video.mp4' : 'audio.mp3' }
+    : { assetId: content.assetId, mimeType: content.mimeType, name: content.name || `${type}` };
+
   if (type === 'image') {
     const img = document.createElement('img');
-    img.src = content; img.alt = 'Generated image';
-    img.addEventListener('click', () => openImageModal(content));
+    img.alt = 'Generated image';
+    hydrateMediaElement(img, contentRef, 'src');
+    img.addEventListener('click', async () => {
+      const src = await resolveMediaUrl(contentRef);
+      if (src) openImageModal(src);
+    });
     wrap.appendChild(img);
-    wrap.appendChild(dlBtn(() => dlMedia(content, 'image.png')));
+    wrap.appendChild(dlBtn(() => downloadMedia(contentRef)));
   } else if (type === 'video') {
     const v = document.createElement('video');
-    v.src = content; v.controls = true; v.preload = 'metadata';
+    v.controls = true; v.preload = 'metadata';
+    hydrateMediaElement(v, contentRef, 'src');
     wrap.appendChild(v);
-    wrap.appendChild(dlBtn(() => dlMedia(content, 'video.mp4')));
+    wrap.appendChild(dlBtn(() => downloadMedia(contentRef)));
   } else if (type === 'audio') {
     const a = document.createElement('audio');
-    a.src = content; a.controls = true; a.preload = 'metadata'; a.style.width = '100%';
+    a.controls = true; a.preload = 'metadata'; a.style.width = '100%';
+    hydrateMediaElement(a, contentRef, 'src');
     wrap.appendChild(a);
-    const db = dlBtn(() => dlMedia(content, 'audio.mp3'));
+    const db = dlBtn(() => downloadMedia(contentRef));
     db.style.cssText += ';position:static;margin-top:6px;opacity:1;';
     wrap.appendChild(db);
   }
@@ -336,9 +353,12 @@ function buildVersionNav(msg, index) {
 
 function buildToolChip(call) {
   const names = { ollama_search: 'Web Search', read_web_page: 'Read Page',
-    generate_image: 'Image Gen', generate_video: 'Video Gen', generate_audio: 'Audio Gen' };
+    generate_image: 'Image Gen', generate_video: 'Video Gen', generate_audio: 'Audio Gen',
+    save_memory: 'Save Memory', delete_memory: 'Delete Memory', list_memories: 'List Memories',
+    edit_response_draft: 'Revise Draft' };
   const icons = { ollama_search: '🔍', read_web_page: '📄',
-    generate_image: '🖼️', generate_video: '🎬', generate_audio: '🎵' };
+    generate_image: '🖼️', generate_video: '🎬', generate_audio: '🎵',
+    save_memory: '🧠', delete_memory: '🧠', list_memories: '🧠', edit_response_draft: '✏️' };
   const chip = document.createElement('button');
   chip.className = 'msg-tool-call';
   chip.innerHTML = `<span>${icons[call.name] || '🔧'}</span><span>${escHtml(names[call.name] || call.name)}</span>`;
@@ -351,6 +371,64 @@ function dlBtn(fn) {
   btn.className = 'media-download-btn'; btn.textContent = 'Download';
   btn.addEventListener('click', fn);
   return btn;
+}
+
+async function resolveMediaUrl(contentRef) {
+  if (contentRef?.src) return contentRef.src;
+  if (!contentRef?.assetId) return '';
+  return getMediaObjectUrl(contentRef.assetId);
+}
+
+function hydrateMediaElement(el, contentRef, prop = 'src') {
+  resolveMediaUrl(contentRef).then((url) => {
+    if (url) el[prop] = url;
+  }).catch(() => {
+    el.classList.add('media-load-error');
+  });
+}
+
+function downloadMedia(contentRef) {
+  if (contentRef?.assetId) {
+    return downloadMediaItem({ id: contentRef.assetId, name: contentRef.name || 'download' });
+  }
+  return dlMedia(contentRef.src, contentRef.name || 'download');
+}
+
+function formatDraftEditPreview(text, { tail = false, max = 260 } = {}) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '[empty]';
+  if (normalized.length <= max) return normalized;
+  return tail ? `...${normalized.slice(-max)}` : `${normalized.slice(0, max)}...`;
+}
+
+function buildResponseEditSummary(edits = []) {
+  const details = document.createElement('details');
+  details.className = 'response-edit-log';
+
+  const summary = document.createElement('summary');
+  summary.textContent = `Model revised this reply ${edits.length} time${edits.length === 1 ? '' : 's'}`;
+  details.appendChild(summary);
+
+  edits.forEach((edit, index) => {
+    const item = document.createElement('div');
+    item.className = 'response-edit-item';
+    item.innerHTML = `
+      <div class="response-edit-title">Revision ${index + 1}</div>
+      <div class="response-edit-reason">${escHtml(edit.reason || 'Model revised its draft.')}</div>
+      <div class="response-edit-compare">
+        <div class="response-edit-pane">
+          <div class="response-edit-label">Before</div>
+          <pre>${escHtml(formatDraftEditPreview(edit.before, { tail: true }))}</pre>
+        </div>
+        <div class="response-edit-pane">
+          <div class="response-edit-label">After</div>
+          <pre>${escHtml(formatDraftEditPreview(edit.after, { tail: true }))}</pre>
+        </div>
+      </div>
+    `;
+    details.appendChild(item);
+  });
+  return details;
 }
 
 // ── SVG icons ─────────────────────────────────────────────────────────────
@@ -831,6 +909,7 @@ function onChatStart(msg) {
   streamingSessionId = sessionId;
   streamingText = '';
   pendingAssets = [];
+  streamingDraftEdits = [];
 
   if (sessionId !== activeSessionId) {
     // Streaming for a background session — just track state, no UI
@@ -859,9 +938,23 @@ function onToken(token) {
   const displayText = stripSessionTag(processDisplay(streamingText));
   streamingBubble.innerHTML = renderMarkdown(displayText);
   attachCodeCopyListeners(streamingBubble);
+  attachSvgPanelListeners(streamingBubble);
   if (autoScroll) {
     const box = document.getElementById('chat-messages');
     if (box) box.scrollTop = box.scrollHeight;
+  }
+}
+
+function onDraftEdited(msg) {
+  if (!streamingBubble) return;
+  streamingText = msg.text || streamingText;
+  if (msg.edit) streamingDraftEdits.push(msg.edit);
+  const displayText = stripSessionTag(processDisplay(streamingText));
+  streamingBubble.innerHTML = renderMarkdown(displayText);
+  attachCodeCopyListeners(streamingBubble);
+  attachSvgPanelListeners(streamingBubble);
+  if (streamingDraftEdits.length) {
+    streamingBubble.appendChild(buildResponseEditSummary(streamingDraftEdits));
   }
 }
 
@@ -876,18 +969,12 @@ function onChatDone(msg) {
     streamingBubble?.classList.remove('msg-generating');
     streamingBubble = null;
     streamingText = '';
+    streamingDraftEdits = [];
     updateSendBtn(false);
     if (msg.history) {
       renderHistory(msg.history);
-      if (pendingAssets.length > 0) {
-        const box = document.getElementById('chat-messages');
-        if (box) {
-          pendingAssets.forEach(asset => appendMediaMsg(box, asset.role, asset.content));
-          if (autoScroll) box.scrollTop = box.scrollHeight;
-        }
-        pendingAssets = [];
-      }
     }
+    pendingAssets = [];
   }
 }
 
@@ -910,18 +997,16 @@ function onChatAborted(msg) {
     updateSendBtn(false);
     if (msg.history) {
       renderHistory(msg.history);
-      if (pendingAssets.length > 0) {
-        const box = document.getElementById('chat-messages');
-        if (box) pendingAssets.forEach(asset => appendMediaMsg(box, asset.role, asset.content));
-      }
     }
     pendingAssets = [];
+    streamingDraftEdits = [];
   }
 }
 
 function onChatError(err) {
   isStreaming = false;
   streamingSessionId = null;
+  streamingDraftEdits = [];
   if (streamingBubble) {
     streamingBubble.classList.remove('msg-generating');
     streamingBubble.querySelector('.msg-thinking')?.remove();
@@ -937,7 +1022,9 @@ function onChatError(err) {
 function handleLiveToolCall(call) {
   if (!streamingBubble) return;
   const names = { ollama_search: 'Searching web…', read_web_page: 'Reading page…',
-    generate_image: 'Generating image…', generate_video: 'Generating video…', generate_audio: 'Generating audio…' };
+    generate_image: 'Generating image…', generate_video: 'Generating video…', generate_audio: 'Generating audio…',
+    save_memory: 'Saving memory…', delete_memory: 'Deleting memory…', list_memories: 'Checking memories…',
+    edit_response_draft: 'Revising answer…' };
 
   if (call.state === 'pending') {
     streamingBubble.querySelector('.msg-thinking')?.remove();
@@ -971,6 +1058,7 @@ export function submitMessage(text, attachments = []) {
 
   const images   = attachments.filter(a => a.type === 'image');
   const textFiles= attachments.filter(a => a.type === 'text');
+  const linkedMediaIds = [...new Set(attachments.map(a => a.mediaId).filter(Boolean))];
 
   let fullText = text;
   if (textFiles.length > 0) {
@@ -1014,7 +1102,14 @@ export function submitMessage(text, attachments = []) {
     if (autoScroll) box.scrollTop = box.scrollHeight;
   }
 
-  send({ type: 'chat:send', sessionId: activeSessionId, content, tools: getActiveTools(), clientId: localStorage.getItem('ipai_client_id') || '' });
+  send({
+    type: 'chat:send',
+    sessionId: activeSessionId,
+    content,
+    tools: getActiveTools(),
+    clientId: localStorage.getItem('ipai_client_id') || '',
+    linkedMediaIds,
+  });
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────

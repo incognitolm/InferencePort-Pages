@@ -3,12 +3,16 @@ import { send, on } from './ws.js';
 import { isAuthenticated, logout, getTempId, getClientId, onAuthChange } from './auth.js';
 import {
   createNewSession, showWelcomeScreen,
-  switchSession, currentSessionId, onSessionChange,
+  switchSession, currentSessionId, onSessionChange, setChatSidebarView, deleteAllSessions,
 } from './sessions.js';
 import { submitMessage, renderSession, setActiveSession, getIsStreaming } from './chat.js';
 import { openAuthModal, closeModal, openPasteEditor } from './modals.js';
 import { openSettings, applyTheme } from './settings.js';
 import { showNotification, autoResize, escHtml } from './ui.js';
+import {
+  initMediaSidebar, openMediaPicker, uploadFileToLibrary,
+  uploadTextToLibrary, mediaItemToAttachment,
+} from './media.js';
 
 // ── Apply theme immediately from localStorage (no flash) ──────────────────
 (function earlyTheme() {
@@ -51,12 +55,36 @@ import { showNotification, autoResize, escHtml } from './ui.js';
 
 const sidebar   = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('toggle-sidebar-btn');
+const sidebarChatPane = document.getElementById('sidebar-chat-pane');
+const sidebarMediaPane = document.getElementById('sidebar-media-pane');
 
 function expandSidebar()  { sidebar?.classList.remove('collapsed'); sidebar?.classList.add('expanded'); }
 function collapseSidebar(){ sidebar?.classList.remove('expanded'); sidebar?.classList.add('collapsed'); }
 function toggleSidebar()  { sidebar?.classList.contains('expanded') ? collapseSidebar() : expandSidebar(); }
 
 toggleBtn?.addEventListener('click', toggleSidebar);
+
+function setSidebarMode(mode = 'chats') {
+  const mediaMode = mode === 'media';
+  document.querySelectorAll('[data-sidebar-mode]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.sidebarMode === mode);
+  });
+  sidebarChatPane?.classList.toggle('hidden', mediaMode);
+  sidebarMediaPane?.classList.toggle('hidden', !mediaMode);
+  if (mediaMode) {
+    import('./media.js').then(({ refreshMediaList }) => refreshMediaList());
+  }
+}
+
+document.querySelectorAll('[data-sidebar-mode]').forEach((btn) => {
+  btn.addEventListener('click', () => setSidebarMode(btn.dataset.sidebarMode));
+});
+
+document.querySelectorAll('[data-chat-view]').forEach((btn) => {
+  btn.addEventListener('click', () => setChatSidebarView(btn.dataset.chatView));
+});
+
+setSidebarMode('chats');
 
 // ── Mobile top bar + sidebar logic ───────────────────────────────────────
 
@@ -83,6 +111,7 @@ toggleBtn?.addEventListener('click', toggleSidebar);
     sidebar?.classList.contains('expanded') ? closeSidebar() : openSidebar();
   });
   document.getElementById('mobile-newchat-btn')?.addEventListener('click', () => {
+    setSidebarMode('chats');
     showWelcomeScreen();
     closeSidebar();
     const ci = document.getElementById('center-input');
@@ -134,6 +163,7 @@ toggleBtn?.addEventListener('click', toggleSidebar);
 // ── New chat — just show the welcome screen ───────────────────────────────
 
 document.getElementById('new-chat-btn')?.addEventListener('click', () => {
+  setSidebarMode('chats');
   showWelcomeScreen();
   const ci = document.getElementById('center-input');
   if (ci) { ci.value = ''; autoResize(ci, 6); }
@@ -243,6 +273,55 @@ function doSend(text, attachments = []) {
 let pendingAttachments = [];
 const LARGE_PASTE_THRESHOLD = 10000;
 
+async function addTextAttachment(name, content) {
+  const attachment = { type: 'text', name, content, mediaId: null };
+  pendingAttachments.push(attachment);
+  renderFilePreviewRow();
+  try {
+    const item = await uploadTextToLibrary(name, content, {
+      sessionId: currentSessionId || null,
+      richText: /\.html?$/i.test(name),
+    });
+    attachment.mediaId = item.id;
+    renderFilePreviewRow();
+  } catch (err) {
+    showNotification({ type: 'warning', message: `Stored only in this draft: ${name}`, duration: 2500 });
+  }
+}
+
+async function addImageAttachmentFromFile(file) {
+  const dataUrl = await new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload  = () => res(reader.result);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+  const comma = dataUrl.indexOf(',');
+  const mimeType = dataUrl.slice(5, dataUrl.indexOf(';'));
+  const base64   = dataUrl.slice(comma + 1);
+  const attachment = { type: 'image', name: file.name, base64, mimeType, mediaId: null };
+  pendingAttachments.push(attachment);
+  renderFilePreviewRow();
+  try {
+    const item = await uploadFileToLibrary(file, {
+      sessionId: currentSessionId || null,
+      kind: 'image',
+    });
+    attachment.mediaId = item.id;
+    renderFilePreviewRow();
+  } catch {
+    showNotification({ type: 'warning', message: `Stored only in this draft: ${file.name}`, duration: 2500 });
+  }
+}
+
+async function addLibraryItemsToDraft(items) {
+  for (const item of items) {
+    const attachment = await mediaItemToAttachment(item);
+    if (attachment) pendingAttachments.push(attachment);
+  }
+  renderFilePreviewRow();
+}
+
 function openAttachMenu(e, triggerEl) {
   e.preventDefault(); e.stopPropagation();
   const menu = document.getElementById('attach-context-menu');
@@ -250,8 +329,9 @@ function openAttachMenu(e, triggerEl) {
   menu.innerHTML = '';
 
   for (const item of [
-    { label: '📄 Upload file',  onClick: () => document.getElementById('file-input')?.click() },
-    { label: '🖼️ Upload image', onClick: () => document.getElementById('image-input')?.click() },
+    { label: 'Upload file', onClick: () => document.getElementById('file-input')?.click() },
+    { label: 'Upload image', onClick: () => document.getElementById('image-input')?.click() },
+    { label: 'Add from media library', onClick: () => openMediaPicker({ onSelect: addLibraryItemsToDraft }) },
   ]) {
     const el = document.createElement('div');
     el.className = 'context-item'; el.textContent = item.label;
@@ -276,30 +356,15 @@ document.getElementById('bottom-attach-btn')?.addEventListener('click', e =>
 document.getElementById('file-input')?.addEventListener('change', async function() {
   for (const file of this.files) {
     const text = await file.text();
-    pendingAttachments.push({ type: 'text', name: file.name, content: text });
+    await addTextAttachment(file.name, text);
   }
   this.value = '';
-  renderFilePreviewRow();
 });
 
 document.getElementById('image-input')?.addEventListener('change', async function() {
-  for (const file of this.files) await addImageFile(file);
+  for (const file of this.files) await addImageAttachmentFromFile(file);
   this.value = '';
 });
-
-async function addImageFile(file) {
-  const dataUrl = await new Promise((res, rej) => {
-    const reader = new FileReader();
-    reader.onload  = () => res(reader.result);
-    reader.onerror = rej;
-    reader.readAsDataURL(file);
-  });
-  const comma = dataUrl.indexOf(',');
-  const mimeType = dataUrl.slice(5, dataUrl.indexOf(';'));
-  const base64   = dataUrl.slice(comma + 1);
-  pendingAttachments.push({ type: 'image', name: file.name, base64, mimeType });
-  renderFilePreviewRow();
-}
 
 function buildAttachmentItem(a, i) {
   const wrap = document.createElement('div');
@@ -372,7 +437,7 @@ function handlePaste(e) {
   const imgItem = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
   if (imgItem) { 
     e.preventDefault(); 
-    addImageFile(imgItem.getAsFile()); 
+    addImageAttachmentFromFile(imgItem.getAsFile()); 
     return; 
   }
 
@@ -380,12 +445,7 @@ function handlePaste(e) {
   const text = clipboardData.getData('text/plain');
   if (text.length > LARGE_PASTE_THRESHOLD) {
     e.preventDefault(); // This NOW works because it's called immediately
-    pendingAttachments.push({ 
-      type: 'text', 
-      name: `Pasted Content.txt`, 
-      content: text 
-    });
-    renderFilePreviewRow();
+    addTextAttachment('Pasted Content.txt', text);
   }
 }
 
@@ -452,7 +512,7 @@ function setupBulletAutoConvert(textarea) {
   input?.addEventListener('drop', async e => {
     e.preventDefault();
     for (const file of e.dataTransfer.files)
-      if (file.type.startsWith('image/')) await addImageFile(file);
+      if (file.type.startsWith('image/')) await addImageAttachmentFromFile(file);
   });
   setupBulletAutoConvert(input);
 });
@@ -476,7 +536,7 @@ document.getElementById('user-profile-btn')?.addEventListener('click', e => {
     { label: '💳  Billing Portal',  onClick: () => window.open('https://sharktide-lightning.hf.space/portal', '_blank') },
     { sep: true },
     { label: '🗑️  Clear All Chats', danger: true,
-      onClick: () => { if (confirm('Delete all chats? This cannot be undone.')) send({ type: 'sessions:deleteAll' }); }},
+      onClick: () => deleteAllSessions() },
     { sep: true },
     { label: '🚪  Sign Out',        danger: true, onClick: () => logout() },
   ];
@@ -554,6 +614,8 @@ on('ws:connected', () => {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────
+
+initMediaSidebar();
 
 document.addEventListener('DOMContentLoaded', () => {
   checkShareParam();

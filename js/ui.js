@@ -122,6 +122,36 @@ export function closeContextMenu() {
 // Store code snippets by a key so copy button can reference them
 const codeStore = new Map();
 let codeStoreCounter = 0;
+const COLOR_TOKEN_RE = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b|\b(?:rgb|hsl)a?\([^)]*\)|\b(?:lab|lch|hwb|oklab|oklch)\([^)]*\)/g;
+
+function isCssColorValue(token) {
+  if (!token) return false;
+  try {
+    return typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+      ? CSS.supports('color', token)
+      : /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(token);
+  } catch {
+    return false;
+  }
+}
+
+function renderCodeWithColorSwatches(source) {
+  const text = String(source || '');
+  let html = '';
+  let lastIndex = 0;
+  text.replace(COLOR_TOKEN_RE, (match, offset) => {
+    html += escHtml(text.slice(lastIndex, offset));
+    if (isCssColorValue(match)) {
+      html += `<span class="code-color-token">${escHtml(match)}<span class="code-color-swatch" aria-hidden="true"><svg viewBox="0 0 12 12" width="12" height="12" focusable="false"><rect x="1" y="1" width="10" height="10" rx="2.2" ry="2.2" fill="${escAttr(match)}" stroke="rgba(255,255,255,0.28)" stroke-width="1"/></svg></span></span>`;
+    } else {
+      html += escHtml(match);
+    }
+    lastIndex = offset + match.length;
+    return match;
+  });
+  html += escHtml(text.slice(lastIndex));
+  return html;
+}
 
 function buildMarkdownOptions() {
   const renderer = new marked.Renderer();
@@ -134,7 +164,7 @@ function buildMarkdownOptions() {
     const rawCode = typeof code === 'object' ? (code.text || '') : code;
     const rawLang = typeof code === 'object' ? (code.lang || lang || 'code') : (lang || 'code');
 
-    const escapedCode = escHtml(rawCode);
+    const escapedCode = renderCodeWithColorSwatches(rawCode);
     const displayLang = rawLang || 'code';
 
     if (rawLang === 'svg') {
@@ -155,7 +185,7 @@ function buildMarkdownOptions() {
   // (the .code-block pre code rule in CSS handles this)
   renderer.codespan = (code) => {
     const raw = typeof code === 'object' ? (code.text || '') : code;
-    return `<code class="inline-code">${escHtml(raw)}</code>`;
+    return `<code class="inline-code">${renderCodeWithColorSwatches(raw)}</code>`;
   };
 
   renderer.link = (href, title, text) => {
@@ -178,10 +208,11 @@ export function renderMarkdown(text) {
       ALLOWED_TAGS: [
         'p','br','strong','em','del','u','s','h1','h2','h3','h4','h5','h6',
         'ul','ol','li','blockquote','hr','table','thead','tbody','tr','th','td',
-        'pre','code','a','img','span','div','details','summary','button',
+        'pre','code','a','img','span','div','details','summary','button','svg','rect',
       ],
       ALLOWED_ATTR: ['href','src','alt','title','class','data-code','data-code-key','data-svg','data-color',
-        'target','rel','style','open','align','type','aria-label'],
+        'target','rel','style','open','align','type','aria-label','aria-hidden','viewBox','width','height',
+        'focusable','x','y','rx','ry','fill','stroke','stroke-width'],
       ALLOW_DATA_ATTR: true,
     });
     return clean;

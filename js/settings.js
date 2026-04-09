@@ -45,18 +45,25 @@ try {
 export function openSettings(tab = 'chat') {
   // Always fetch fresh settings from server before building the modal
   if (isAuthenticated()) {
+    let opened = false;
+    const openOnce = (resolvedSettings) => {
+      if (opened) return;
+      opened = true;
+      _openSettingsModal(tab, resolvedSettings);
+    };
     send({ type: 'settings:get' });
     // Wait for the settings response, then open modal with fresh data
     const handler = (msg) => {
       off('settings:data', handler);
       const freshSettings = msg.settings || userSettings || _defaultSettings();
-      _openSettingsModal(tab, freshSettings);
+      clearTimeout(fallbackTimer);
+      openOnce(freshSettings);
     };
     on('settings:data', handler);
     // Fallback: if no response in 1.5s, open with cached settings
-    setTimeout(() => {
+    const fallbackTimer = setTimeout(() => {
       off('settings:data', handler);
-      _openSettingsModal(tab, userSettings || _defaultSettings());
+      openOnce(userSettings || _defaultSettings());
     }, 1500);
   } else {
     // Guest: use localStorage cached settings
@@ -76,16 +83,16 @@ function _openSettingsModal(activeTab, settings) {
   openModal(buildSettingsHtml(activeTab, settings), {
     wide: true,
     onOpen(b) {
+      const cleanups = [];
       setupSettingsTabs(b);
       setupChatSettings(b);
+      const memoryCleanup = setupMemorySettings(b);
+      if (typeof memoryCleanup === 'function') cleanups.push(memoryCleanup);
       if (isAuthenticated()) {
-        setupAccountSettings(b);
+        const accountCleanup = setupAccountSettings(b);
+        if (typeof accountCleanup === 'function') cleanups.push(accountCleanup);
       }
-      b.querySelectorAll('[data-disabled]').forEach(btn => {
-        btn.disabled = true;
-        btn.title = 'Coming soon';
-        btn.style.opacity = '0.45';
-      });
+      return () => cleanups.forEach((cleanup) => cleanup());
     }
   });
 }
@@ -101,6 +108,7 @@ function buildSettingsHtml(activeTab, settings) {
   </div>
   <div class="settings-tabs">
     <button class="settings-tab ${activeTab==='chat'?'active':''}" data-tab="chat">Chat</button>
+    <button class="settings-tab ${activeTab==='memories'?'active':''}" data-tab="memories">Memories</button>
     ${authed ? `<button class="settings-tab ${activeTab==='account'?'active':''}" data-tab="account">Account</button>` : ''}
   </div>
 
@@ -124,6 +132,8 @@ function buildSettingsHtml(activeTab, settings) {
     ${buildToolToggle('audioGen',   'Audio / SFX',    'Generate music and sound effects', settings.audioGen !== false)}
   </div>
 
+  ${buildMemoriesPane(activeTab)}
+
   ${authed ? buildAccountPane(activeTab) : ''}
 
   <div class="modal-footer" style="border-top:1px solid var(--border);padding-top:12px;">
@@ -145,6 +155,23 @@ function buildToolToggle(key, label, desc, enabled) {
       <div class="toggle-track"></div>
       <div class="toggle-thumb"></div>
     </label>
+  </div>`;
+}
+
+function buildMemoriesPane(activeTab) {
+  return `
+  <div class="settings-pane ${activeTab==='memories'?'active':''}" data-pane="memories" style="padding:0 24px 20px;">
+    <div class="form-group" style="margin-top:4px;">
+      <label class="form-label">Add Memory</label>
+      <div style="display:flex;gap:8px;">
+        <input class="form-input" id="memory-create-input" placeholder="Short memory or note" style="flex:1;" />
+        <button class="btn-ghost" id="memory-create-btn" style="font-size:13px;padding:6px 14px;white-space:nowrap;">Save</button>
+      </div>
+      <div class="form-hint">Memories are shared across chats and should stay short.</div>
+    </div>
+    <div id="memories-list" class="memories-list">
+      <div style="font-size:13px;color:var(--text-muted);">Loading memories…</div>
+    </div>
   </div>`;
 }
 
@@ -176,8 +203,6 @@ function buildAccountPane(activeTab) {
     <!-- Data management -->
     <div style="margin-bottom:8px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Data</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
-      <button class="btn-ghost" data-disabled style="font-size:13px;">Manage Memories</button>
-      <button class="btn-ghost" data-disabled style="font-size:13px;">Delete All Memories</button>
       <button class="btn-danger" id="delete-sessions-btn" style="font-size:13px;">Delete All Chats</button>
     </div>
 
@@ -221,7 +246,83 @@ function setupChatSettings(b) {
   });
 }
 
+function renderMemoriesList(b, items) {
+  const list = b.querySelector('#memories-list');
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = '<div style="font-size:13px;color:var(--text-muted);">No memories saved yet.</div>';
+    return;
+  }
+  list.innerHTML = items.map((memory) => `
+    <div class="memory-item" data-memory-id="${escHtml(memory.id)}">
+      <textarea class="memory-textarea">${escHtml(memory.content)}</textarea>
+      <div class="memory-meta">
+        <span>${escHtml(memory.source || 'assistant')}</span>
+        <span>${escHtml(new Date(memory.updatedAt).toLocaleString())}</span>
+      </div>
+      <div class="memory-actions">
+        <button class="btn-ghost memory-save-btn" data-memory-save="${escHtml(memory.id)}">Save</button>
+        <button class="btn-danger memory-delete-btn" data-memory-delete="${escHtml(memory.id)}">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('[data-memory-save]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.memorySave;
+      const value = list.querySelector(`.memory-item[data-memory-id="${id}"] .memory-textarea`)?.value || '';
+      send({ type: 'memories:update', id, content: value });
+    });
+  });
+
+  list.querySelectorAll('[data-memory-delete]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!confirm('Delete this memory?')) return;
+      send({ type: 'memories:delete', id: btn.dataset.memoryDelete });
+    });
+  });
+}
+
+function loadMemoriesInto(b) {
+  const handler = (msg) => {
+    unsubscribe();
+    if (!b.isConnected) return;
+    renderMemoriesList(b, msg.items || []);
+  };
+  const unsubscribe = on('memories:list', handler);
+  send({ type: 'memories:list' });
+  return unsubscribe;
+}
+
+function setupMemorySettings(b) {
+  const unsubs = [];
+  let pendingListCleanup = null;
+  const reload = () => {
+    pendingListCleanup?.();
+    pendingListCleanup = loadMemoriesInto(b);
+  };
+
+  reload();
+  b.querySelector('#memory-create-btn')?.addEventListener('click', () => {
+    const input = b.querySelector('#memory-create-input');
+    const value = input?.value.trim();
+    if (!value) return;
+    send({ type: 'memories:create', content: value, source: 'manual' });
+    if (input) input.value = '';
+  });
+  ['memories:created', 'memories:updated', 'memories:deleted', 'memories:changed'].forEach((type) => {
+    unsubs.push(on(type, () => {
+      if (b.isConnected) reload();
+    }));
+  });
+  return () => {
+    pendingListCleanup?.();
+    unsubs.forEach((unsubscribe) => unsubscribe?.());
+  };
+}
+
 function setupAccountSettings(b) {
+  const unsubs = [];
   // Username
   b.querySelector('#username-save')?.addEventListener('click', async () => {
     const val = b.querySelector('#username-input')?.value;
@@ -248,10 +349,8 @@ function setupAccountSettings(b) {
 
   // Delete all sessions
   b.querySelector('#delete-sessions-btn')?.addEventListener('click', () => {
-    if (confirm('Delete all chats? This cannot be undone.')) {
-      deleteAllSessions();
-      closeModal();
-    }
+    deleteAllSessions();
+    closeModal();
   });
 
   // Revoke all devices
@@ -292,7 +391,7 @@ function setupAccountSettings(b) {
       planEl.innerHTML = `<span style="color:var(--plan-${pKey})">${escHtml(pName)}</span>`;
     }
   };
-  on('account:subscription', subHandler);
+  unsubs.push(on('account:subscription', subHandler));
 
   const sessHandler = (msg) => {
     off('account:deviceSessions', sessHandler);
@@ -322,7 +421,10 @@ function setupAccountSettings(b) {
       });
     });
   };
-  on('account:deviceSessions', sessHandler);
+  unsubs.push(on('account:deviceSessions', sessHandler));
+  return () => {
+    unsubs.forEach((unsubscribe) => unsubscribe?.());
+  };
 }
 
 function applySettings(b) {

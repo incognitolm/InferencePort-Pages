@@ -79,8 +79,37 @@
         </button>
       </div>
 
+      <div id="sidebar-mode-tabs" class="sidebar-mode-tabs">
+        <button class="sidebar-mode-tab active" data-sidebar-mode="chats">Chats</button>
+        <button class="sidebar-mode-tab" data-sidebar-mode="media">Media</button>
+      </div>
+
       <div class="sidebar-sessions" id="sidebar-sessions">
-        <div class="session-list" id="session-list"></div>
+        <div id="sidebar-chat-pane" class="sidebar-pane active">
+          <div class="sidebar-subtabs">
+            <button class="sidebar-subtab active" data-chat-view="active">Chats</button>
+            <button class="sidebar-subtab" data-chat-view="deleted">Recently Deleted</button>
+          </div>
+          <div id="deleted-chat-selection-bar" class="sidebar-selection-bar hidden"></div>
+          <div class="session-list" id="session-list"></div>
+          <div class="deleted-chat-list hidden" id="deleted-chat-list"></div>
+        </div>
+
+        <div id="sidebar-media-pane" class="sidebar-pane hidden">
+          <div class="sidebar-subtabs">
+            <button class="sidebar-subtab active" data-media-view="active">Library</button>
+            <button class="sidebar-subtab" data-media-view="trash">Trash</button>
+          </div>
+          <div class="sidebar-toolbar-row">
+            <button id="media-upload-btn" class="sidebar-action-btn" title="Upload file">Upload</button>
+            <button id="media-new-folder-btn" class="sidebar-action-btn" title="Create folder">Folder</button>
+            <button id="media-new-text-btn" class="sidebar-action-btn" title="Create text document">Text</button>
+            <button id="media-new-richtext-btn" class="sidebar-action-btn" title="Create rich text document">Rich</button>
+          </div>
+          <div id="media-breadcrumbs" class="media-breadcrumbs"></div>
+          <div id="media-selection-bar" class="sidebar-selection-bar hidden"></div>
+          <div id="media-list" class="media-list"></div>
+        </div>
       </div>
 
       <div class="sidebar-bottom" id="sidebar-bottom">
@@ -198,6 +227,25 @@
           </button>
         </div>
       </div>
+
+      <aside id="media-editor-panel" class="media-editor-panel hidden">
+        <div class="media-editor-header">
+          <div class="media-editor-heading">
+            <div class="media-editor-title" id="media-editor-title">Untitled</div>
+            <div class="media-editor-meta" id="media-editor-meta"></div>
+          </div>
+          <button id="media-editor-close" class="sidebar-icon-btn" title="Close editor">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="media-editor-toolbar" class="media-editor-toolbar hidden"></div>
+        <div id="media-editor-status" class="media-editor-status hidden"></div>
+        <div id="media-editor-content" class="media-editor-content"></div>
+        <div class="media-editor-footer">
+          <button class="btn-ghost" id="media-editor-cancel">Close</button>
+          <button class="btn-primary" id="media-editor-save">Save</button>
+        </div>
+      </aside>
     </main>
   </div>
 
@@ -227,6 +275,7 @@
   <!-- Hidden file input -->
   <input type="file" id="file-input" multiple style="display:none" />
   <input type="file" id="image-input" accept="image/*" multiple style="display:none" />
+  <input type="file" id="media-upload-input" multiple style="display:none" />
 
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
