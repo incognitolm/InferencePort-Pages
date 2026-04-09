@@ -1549,17 +1549,17 @@ function onChatStart(msg) {
   updateSendBtn(true);
 }
 
-function onToken(token) {
-  if (!streamingBubble) return;
-  ensureLiveTextSegment();
-  streamingText += token;
-  streamingStatusLabel = 'Thinkingâ€¦';
-  renderStreamingBubble();
-  if (autoScroll) {
-    const box = document.getElementById('chat-messages');
-    if (box) box.scrollTop = box.scrollHeight;
-  }
-}
+// function onToken(token) {
+//   if (!streamingBubble) return;
+//   ensureLiveTextSegment();
+//   streamingText += token;
+//   streamingStatusLabel = 'Thinkingâ€¦';
+//   renderStreamingBubble();
+//   if (autoScroll) {
+//     const box = document.getElementById('chat-messages');
+//     if (box) box.scrollTop = box.scrollHeight;
+//   }
+// }
 
 function onDraftEdited(msg) {
   if (!streamingBubble) return;
