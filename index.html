@@ -180,7 +180,11 @@
           By interacting with this website, you agree to
           <a id="tos-link" href="#" target="_blank" rel="noopener noreferrer">these Terms of Service</a>
           and
-          <a id="privacy-link" href="#" target="_blank" rel="noopener noreferrer">this privacy policy</a>.
+          <a id="privacy-link" href="#" target="_blank" rel="noopener noreferrer">this privacy policy</a>. | 
+
+          <a id="feedback-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">
+            Click here to report issues and request features.
+          </a>
         </p>
       </div>
 
@@ -189,8 +193,19 @@
           const isChatRoute = location.pathname.startsWith('/chat');
           const basePath = isChatRoute ? '/chat/' : '/';
 
+          // existing links
           document.getElementById('tos-link').href = basePath + 'terms.html';
           document.getElementById('privacy-link').href = basePath + 'privacy.html';
+
+          // feedback link (same routing rule)
+          const feedbackLink = document.getElementById('feedback-link');
+          feedbackLink.href = basePath + 'feedback.html';
+
+          // desktop-only visibility
+          const isDesktop = window.matchMedia('(min-width: 769px)').matches;
+          if (isDesktop) {
+            feedbackLink.style.display = 'inline';
+          }
         })();
       </script>
 
