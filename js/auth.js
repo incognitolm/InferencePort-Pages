@@ -81,7 +81,14 @@ export async function signUpWithEmail(email, password) {
  * on some mobile browsers or strict sandboxes).
  */
 export async function loginWithOAuth(provider) {
-  const redirectTo = encodeURIComponent(`${location.origin}/oauth-callback.html`);
+  const isChatRoute = location.pathname.startsWith('/chat');
+
+  const callbackPath = isChatRoute
+    ? '/chat/oauth-callback.html'
+    : '/oauth-callback.html';
+
+  const redirectTo = encodeURIComponent(`${location.origin}${callbackPath}`);
+
   const url = `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}&redirect_to=${redirectTo}`;
   window.open(url, '_blank', 'width=520,height=640,noopener,noreferrer');
   // The storage listener below (window.addEventListener('storage', ...))
