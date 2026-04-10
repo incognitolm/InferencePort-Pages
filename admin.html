@@ -323,6 +323,7 @@
   .pill-improvement { background: rgba(89,140,255,0.15); color: #7ea9ff; }
   .pill-production { background: rgba(240,207,88,0.12); color: var(--accent); }
   .pill-beta { background: rgba(52,211,153,0.12); color: var(--success); }
+  .pill-app { background: rgba(168,85,247,0.15); color: #c084fc; }
   .pill-open { background: rgba(240,207,88,0.12); color: var(--accent); }
   .pill-resolved { background: rgba(52,211,153,0.1); color: rgba(52,211,153,0.7); }
 
@@ -501,6 +502,7 @@
                 <button class="filter-btn active" id="issueFilter-all" onclick="setFilter('issues','all')">All</button>
                 <button class="filter-btn" id="issueFilter-production" onclick="setFilter('issues','production')">Production</button>
                 <button class="filter-btn" id="issueFilter-beta" onclick="setFilter('issues','beta')">Beta</button>
+                <button class="filter-btn" id="issueFilter-app" onclick="setFilter('issues','app')">App</button>
                 <button class="filter-btn" id="issueFilter-open" onclick="setFilter('issues','open')">Open</button>
                 <button class="filter-btn" id="issueFilter-resolved" onclick="setFilter('issues','resolved')">Resolved</button>
               </div>
@@ -820,7 +822,7 @@
   function setFilter(panel, value) {
     if (panel === 'issues') {
       issueFilter = value;
-      ['all','production','beta','open','resolved'].forEach(f => {
+      ['all','production','beta','app','open','resolved'].forEach(f => {
         document.getElementById(`issueFilter-${f}`)?.classList.toggle('active', f === value);
       });
     } else {

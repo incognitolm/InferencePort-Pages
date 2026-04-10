@@ -372,6 +372,7 @@
           <div class="toggle-row">
             <button class="toggle-btn active-blue" id="btnProduction" onclick="setEnv('production')">Production</button>
             <button class="toggle-btn" id="btnBeta" onclick="setEnv('beta')">Beta</button>
+            <button class="toggle-btn" id="btnApp" onclick="setEnv('app')">App</button>
           </div>
         </div>
 
@@ -444,6 +445,7 @@
     currentEnv = env;
     document.getElementById('btnProduction').className = 'toggle-btn' + (env === 'production' ? ' active-blue' : '');
     document.getElementById('btnBeta').className = 'toggle-btn' + (env === 'beta' ? ' active-blue' : '');
+    document.getElementById('btnApp').className = 'toggle-btn' + (env === 'app' ? ' active-blue' : '');
   }
 
   function updateCharCount(inputId, countId, max) {
