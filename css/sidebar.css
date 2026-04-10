@@ -485,7 +485,7 @@
   border: 1px solid var(--border-bright);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: var(--z-menu);
+  z-index: 999;
   overflow: hidden;
   min-width: 170px;
   animation: slideUp 0.14s ease;

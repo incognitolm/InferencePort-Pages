@@ -705,6 +705,7 @@ document.getElementById('settings-btn')?.addEventListener('click', () => openSet
 document.getElementById('settings-btn-guest')?.addEventListener('click', () => openSettings('chat'));
 
 document.getElementById('user-profile-btn')?.addEventListener('click', e => {
+  e.stopPropagation();
   const btn = e.currentTarget;
   const rect = btn.getBoundingClientRect();
   const icon = {
@@ -723,6 +724,7 @@ document.getElementById('user-profile-btn')?.addEventListener('click', e => {
     { separator: true },
     { label: 'Sign Out', icon: icon.signout, danger: true, onClick: () => logout() },
   ], { menuId: 'user-context-menu', triggerEl: btn });
+  return;
   const menu = document.getElementById('user-context-menu');
   if (!menu) return;
 
