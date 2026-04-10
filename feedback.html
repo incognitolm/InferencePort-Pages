@@ -408,13 +408,21 @@
       </div>
       <div class="success-sub">We value your feedback. Your ticket has been submitted and will be reviewed by our team.</div>
       <div class="success-actions">
-        <a href="/" class="btn-outline">Back to Chat</a>
-        <button class="btn-accent" onclick="resetForm()">Submit Another Ticket</button>
+        <a id="backToChat" href="#" class="btn-outline">Back to Chat</a>        <button class="btn-accent" onclick="resetForm()">Submit Another Ticket</button>
       </div>
     </div>
   </div>
   <div class="disclaimer">All submissions are logged. Do not include sensitive or personal information.</div>
 </div>
+
+<script>
+  (function () {
+    const isChatRoute = location.pathname.startsWith('/chat');
+    const basePath = isChatRoute ? '/chat/' : '/';
+
+    document.getElementById('backToChat').href = basePath;
+  })();
+</script>
 
 <script>
   let currentType = 'issue';
