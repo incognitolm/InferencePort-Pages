@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <!-- Inline early theme to prevent flash of wrong theme -->
+  <!-- Bootstrap (for navbar collapse on mobile) — loaded only when navbar is shown -->
   <script>
     (function(){
       try {
@@ -35,10 +35,187 @@
   <link rel="stylesheet" href="/css/chat.css" />
   <link rel="stylesheet" href="/css/modals.css" />
   <link rel="stylesheet" href="/css/input.css" />
+
   <style>
-    html, body { overflow: hidden; height: 100%; max-height: var(--app-height, 100dvh); width: 100%; max-width: 100%; }
-    #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; }
+    /* ─── Site Navbar (conditional) ──────────────────────────────────────── */
+    #site-navbar {
+      display: none; /* hidden by default; JS shows it on inference.js.org */
+      width: 100%;
+      background: rgba(8, 13, 26, 0.97);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      z-index: 1100;
+      position: relative;
+      font-family: "Inter", system-ui, sans-serif;
+    }
+
+    #site-navbar .snav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      height: 52px;
+      max-width: 1200px;
+      margin: 0 auto;
+      gap: 16px;
+    }
+
+    #site-navbar .snav-brand {
+      font-weight: 800;
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+      color: #fff;
+      text-decoration: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #site-navbar .snav-brand span { color: #4f7cff; }
+
+    #site-navbar .snav-links {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      flex-wrap: nowrap;
+    }
+
+    #site-navbar .snav-links a {
+      color: #8b93a7;
+      text-decoration: none;
+      font-size: 0.83rem;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 6px;
+      transition: color 0.2s, background 0.2s;
+      white-space: nowrap;
+    }
+    #site-navbar .snav-links a:hover,
+    #site-navbar .snav-links a.active { color: #fff; }
+
+    #site-navbar .snav-links .snav-pill-chat {
+      background: rgba(251,191,36,0.15);
+      color: #fbbf24 !important;
+      border: 1px solid rgba(251,191,36,0.35);
+      border-radius: 7px;
+      padding: 5px 13px;
+      font-weight: 600;
+    }
+    #site-navbar .snav-links .snav-pill-chat:hover {
+      background: rgba(251,191,36,0.25);
+      color: #fde68a !important;
+    }
+
+    #site-navbar .snav-links .snav-pill {
+      background: #4f7cff;
+      color: #fff !important;
+      border-radius: 7px;
+      padding: 5px 13px;
+      font-weight: 600;
+    }
+    #site-navbar .snav-links .snav-pill:hover { opacity: 0.85; }
+
+    /* Hamburger (mobile only) */
+    #site-navbar .snav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      color: #8b93a7;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    #site-navbar .snav-hamburger:hover { color: #fff; }
+
+    /* Mobile drawer */
+    #site-navbar .snav-drawer {
+      display: none;
+      flex-direction: column;
+      background: rgba(8, 13, 26, 0.99);
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 20px 16px;
+      gap: 2px;
+    }
+    #site-navbar .snav-drawer.open { display: flex; }
+    #site-navbar .snav-drawer a {
+      color: #8b93a7;
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 500;
+      padding: 9px 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      transition: color 0.2s;
+    }
+    #site-navbar .snav-drawer a:last-child { border-bottom: none; }
+    #site-navbar .snav-drawer a:hover { color: #fff; }
+    #site-navbar .snav-drawer .snav-pill-chat {
+      color: #fbbf24 !important;
+      font-weight: 600;
+    }
+    #site-navbar .snav-drawer .snav-pill {
+      color: #4f7cff !important;
+      font-weight: 600;
+    }
+
+    /* ─── Mobile pull-down reveal ─────────────────────────────────────────── */
+    /*
+      On mobile, the site navbar slides in from the top when the user
+      "over-scrolls" upward (touches the top and pulls down).
+      We wrap it in a container that clips it offscreen.
+    */
     @media (max-width: 768px) {
+      #site-navbar-wrap {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1200;
+        /* slide up out of view by default */
+        transform: translateY(-100%);
+        transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+        will-change: transform;
+      }
+      #site-navbar-wrap.revealed {
+        transform: translateY(0);
+      }
+
+      /* When the site navbar IS revealed, push the mobile-top-bar down */
+      #site-navbar-wrap.revealed ~ #mobile-top-bar,
+      body.snav-revealed #mobile-top-bar {
+        margin-top: 0; /* mobile-top-bar is fixed, we nudge it via its top */
+      }
+
+      /* Push mobile-top-bar below site navbar when revealed */
+      #mobile-top-bar {
+        transition: top 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      body.snav-revealed #mobile-top-bar {
+        top: var(--snav-height, 52px);
+      }
+
+      /* Hide desktop snav-links on mobile, show hamburger */
+      #site-navbar .snav-links { display: none; }
+      #site-navbar .snav-hamburger { display: flex; align-items: center; }
+    }
+
+    @media (min-width: 769px) {
+      /* On desktop, navbar is static at top — no pull-down needed */
+      #site-navbar-wrap {
+        position: relative;
+        transform: none !important;
+        z-index: 1100;
+      }
+      html, body { overflow: hidden; height: 100%; max-height: var(--app-height, 100dvh); width: 100%; max-width: 100%; }
+      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; }
+    }
+
+    /* ─── Core layout (original, preserved) ──────────────────────────────── */
+    @media (max-width: 768px) {
+      html, body { overflow: hidden; height: 100%; max-height: var(--app-height, 100dvh); width: 100%; max-width: 100%; }
+      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; }
       #main {
         height: var(--app-height, 100dvh);
         max-height: var(--app-height, 100dvh);
@@ -46,19 +223,62 @@
         flex-direction: column;
         overflow: hidden;
       }
-      /* Push content below the fixed top bar */
       .chat-view, .welcome-view { padding-top: 0; }
     }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
   <script
-  src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-  async
-  defer
-></script>
-<link rel="preconnect" href="https://challenges.cloudflare.com" />
+    src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+    async
+    defer
+  ></script>
+  <link rel="preconnect" href="https://challenges.cloudflare.com" />
 </head>
 <body>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       SITE NAVBAR WRAP — shown only on inference.js.org (any path)
+       On desktop: static block at top.
+       On mobile:  fixed, slides in from top on pull-down gesture.
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div id="site-navbar-wrap">
+    <nav id="site-navbar">
+      <!-- Desktop row -->
+      <div class="snav-inner">
+        <a class="snav-brand" href="index.html">InferencePort<span>AI</span></a>
+        <ul class="snav-links">
+          <li><a href="index.html" class="active">Home</a></li>
+          <li><a href="marketplace.html">Marketplace</a></li>
+          <li><a href="lightning.html">Lightning</a></li>
+          <li><a href="install.html">Install</a></li>
+          <li><a href="pricing.html">Pricing</a></li>
+          <li><a href="security.html">Security</a></li>
+          <li><a href="chat/" class="snav-pill-chat">Chat Now</a></li>
+          <li><a href="install.html#install" class="snav-pill">Get Started</a></li>
+        </ul>
+        <!-- Hamburger for mobile -->
+        <button class="snav-hamburger" id="snav-hamburger-btn" aria-label="Toggle navigation" aria-expanded="false">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <!-- Mobile drawer (toggled by hamburger) -->
+      <div class="snav-drawer" id="snav-drawer">
+        <a href="index.html">Home</a>
+        <a href="marketplace.html">Marketplace</a>
+        <a href="lightning.html">Lightning</a>
+        <a href="install.html">Install</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="security.html">Security</a>
+        <a href="chat/" class="snav-pill-chat">Chat Now</a>
+        <a href="install.html#install" class="snav-pill">Get Started</a>
+      </div>
+    </nav>
+  </div>
+
   <!-- Share import overlay -->
   <div id="share-import-banner" class="share-banner hidden">
     <div class="share-banner-inner">
@@ -146,11 +366,9 @@
       <div class="sidebar-bottom" id="sidebar-bottom">
         <!-- Shown when not signed in -->
         <div id="guest-section" class="account-section">
-          <!-- Collapsed: icon-only sign-in button -->
           <button id="signin-icon-btn" class="btn-signin-icon" title="Sign In">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           </button>
-          <!-- Expanded: full sign-in button -->
           <button id="signin-btn" class="btn-signin">Sign In</button>
           <button id="settings-btn-guest" class="sidebar-icon-btn" title="Settings">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -193,15 +411,12 @@
           const isChatRoute = location.pathname.startsWith('/chat');
           const basePath = isChatRoute ? '/chat/' : '/';
 
-          // existing links
           document.getElementById('tos-link').href = basePath + 'terms.html';
           document.getElementById('privacy-link').href = basePath + 'privacy.html';
 
-          // feedback link (same routing rule)
           const feedbackLink = document.getElementById('feedback-link');
           feedbackLink.href = basePath + 'feedback.html';
 
-          // desktop-only visibility
           const isDesktop = window.matchMedia('(min-width: 769px)').matches;
           if (isDesktop) {
             feedbackLink.style.display = 'inline';
@@ -314,7 +529,7 @@
     <div id="modal-box" class="modal-box"></div>
   </div>
 
-  <!-- Turnstile verification overlay (shows until user verifies) -->
+  <!-- Turnstile verification overlay -->
   <div id="turnstile-overlay" class="modal-overlay turnstile-overlay">
     <div class="turnstile-box" id="turnstile-box">
       <div class="turnstile-message">Please verify you are human to continue using the chat.</div>
@@ -327,7 +542,7 @@
   <!-- Notification area -->
   <div id="notifications" class="notifications"></div>
 
-  <!-- Hidden file input -->
+  <!-- Hidden file inputs -->
   <input type="file" id="file-input" accept=".txt,.md,.json,.js,.ts,.css,.py,.html,.htm,.xml,.csv,.rtf,text/*" multiple style="display:none" />
   <input type="file" id="image-input" accept="image/*" multiple style="display:none" />
   <input type="file" id="media-upload-input" multiple style="display:none" />
@@ -336,7 +551,148 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  <!-- Turnstile widget handler (shows verification overlay) -->
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       SITE NAVBAR LOGIC
+       - Shows navbar only when hostname === 'inference.js.org'
+       - Desktop: static at top, always visible
+       - Mobile: fixed, hidden off-screen; revealed by pull-down (touch) gesture
+         Auto-hides after 4 s of inactivity once revealed.
+  ════════════════════════════════════════════════════════════════════════ -->
+  <script>
+  (function () {
+    var HOSTNAME = 'inference.js.org';
+    var isTarget = (location.hostname === HOSTNAME);
+
+    var wrap   = document.getElementById('site-navbar-wrap');
+    var navbar = document.getElementById('site-navbar');
+    var mobileBar = document.getElementById('mobile-top-bar');
+
+    if (!isTarget) {
+      // Not on inference.js.org — keep everything hidden, nothing to do
+      wrap.style.display = 'none';
+      return;
+    }
+
+    // ── Show the navbar element ───────────────────────────────────────────
+    navbar.style.display = 'block';
+
+    var isMobile = window.matchMedia('(max-width: 768px)');
+
+    // ── Measure navbar height for CSS variable ────────────────────────────
+    function updateSnavHeight() {
+      var h = navbar.offsetHeight;
+      document.documentElement.style.setProperty('--snav-height', h + 'px');
+    }
+    updateSnavHeight();
+    window.addEventListener('resize', updateSnavHeight);
+
+    // ── Hamburger toggle ──────────────────────────────────────────────────
+    var hamburgerBtn = document.getElementById('snav-hamburger-btn');
+    var drawer       = document.getElementById('snav-drawer');
+    hamburgerBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = drawer.classList.toggle('open');
+      hamburgerBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      updateSnavHeight(); // drawer changes height
+    });
+    // Close drawer when clicking outside
+    document.addEventListener('click', function (e) {
+      if (!navbar.contains(e.target)) {
+        drawer.classList.remove('open');
+        hamburgerBtn.setAttribute('aria-expanded', 'false');
+        updateSnavHeight();
+      }
+    });
+
+    // ── Desktop: nothing special needed — navbar is static in flow ────────
+    if (!isMobile.matches) return;
+
+    // ── Mobile pull-down reveal logic ─────────────────────────────────────
+    // The wrap is fixed, translated -100% by default.
+    // We watch touch events: if the user starts at scrollTop === 0 and
+    // pulls down (deltaY > threshold), we reveal the navbar.
+    // It auto-hides after 4 s, or immediately when user taps elsewhere.
+
+    var revealed   = false;
+    var hideTimer  = null;
+    var touchStartY = 0;
+    var touchStartScrollTop = 0;
+    var PULL_THRESHOLD = 48; // px of downward pull needed to trigger
+    var AUTO_HIDE_MS   = 4000;
+
+    function revealNav() {
+      if (revealed) { resetHideTimer(); return; }
+      revealed = true;
+      wrap.classList.add('revealed');
+      document.body.classList.add('snav-revealed');
+      updateSnavHeight();
+      resetHideTimer();
+    }
+
+    function hideNav() {
+      if (!revealed) return;
+      revealed = false;
+      wrap.classList.remove('revealed');
+      document.body.classList.remove('snav-revealed');
+      drawer.classList.remove('open');
+      hamburgerBtn.setAttribute('aria-expanded', 'false');
+      clearTimeout(hideTimer);
+    }
+
+    function resetHideTimer() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideNav, AUTO_HIDE_MS);
+    }
+
+    // Capture touches on the whole document
+    document.addEventListener('touchstart', function (e) {
+      touchStartY = e.touches[0].clientY;
+      // Find the scrollable element under the touch (main chat area)
+      var el = e.target;
+      var scrollTop = 0;
+      while (el && el !== document.body) {
+        if (el.scrollTop !== undefined) { scrollTop = el.scrollTop; break; }
+        el = el.parentElement;
+      }
+      touchStartScrollTop = scrollTop;
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function (e) {
+      var deltaY = e.touches[0].clientY - touchStartY;
+      // Only trigger when pulling down AND content is already at the top
+      if (deltaY > PULL_THRESHOLD && touchStartScrollTop === 0) {
+        revealNav();
+      }
+    }, { passive: true });
+
+    // Tapping outside the navbar while revealed → hide it
+    document.addEventListener('touchend', function (e) {
+      if (revealed && !wrap.contains(e.target)) {
+        // Small delay so tap-on-nav doesn't immediately close
+        setTimeout(function () {
+          if (revealed) resetHideTimer();
+        }, 100);
+      }
+    }, { passive: true });
+
+    // Keep alive while interacting with the navbar itself
+    wrap.addEventListener('touchstart', function () {
+      resetHideTimer();
+    }, { passive: true });
+
+    // Also handle isMobile changes (e.g. orientation)
+    isMobile.addEventListener('change', function (e) {
+      if (!e.matches) {
+        // Switched to desktop — remove mobile classes
+        hideNav();
+        wrap.style.transform = '';
+      }
+    });
+
+  })();
+  </script>
+
   <script type="module" src="/js/turnstile.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>
