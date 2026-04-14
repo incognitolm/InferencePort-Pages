@@ -212,13 +212,16 @@
         z-index: 1100;
       }
       html, body { overflow: hidden; height: 100%; max-height: var(--app-height, 100dvh); width: 100%; max-width: 100%; }
-      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; margin-top: var(--snav-height, 52px); }
+      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; }
     }
 
     /* ─── Core layout (original, preserved) ──────────────────────────────── */
     @media (max-width: 768px) {
       html, body { overflow: hidden; height: 100%; max-height: var(--app-height, 100dvh); width: 100%; max-width: 100%; }
-      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; margin-top: var(--snav-height, 52px); }
+      #app { display: flex; height: var(--app-height, 100dvh); overflow: hidden; width: 100%; max-width: 100%; }
+      body.has-snav #app {
+        margin-top: var(--snav-height, 52px);
+      }
       #main {
         height: var(--app-height, 100dvh);
         max-height: var(--app-height, 100dvh);
@@ -575,6 +578,10 @@
       // Not on inference.js.org — keep everything hidden, nothing to do
       wrap.style.display = 'none';
       return;
+    }
+
+    if (isTarget) {
+      document.body.classList.add('has-snav');
     }
 
     // ── Show the navbar element ───────────────────────────────────────────
