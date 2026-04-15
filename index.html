@@ -221,7 +221,7 @@
       }
       #app {
         display: flex;
-        height: calc(var(--app-height, 100dvh) - var(--snav-height, 52px));
+        height: var(--app-height, 100dvh);
         overflow: hidden;
         width: 100%;
         max-width: 100%;
@@ -603,6 +603,7 @@
     function updateSnavHeight() {
       var h = navbar.offsetHeight;
       document.documentElement.style.setProperty('--snav-height', h + 'px');
+      document.documentElement.style.setProperty('--app-height', (window.innerHeight - h) + 'px');
     }
     updateSnavHeight();
     window.addEventListener('resize', updateSnavHeight);
