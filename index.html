@@ -217,12 +217,11 @@
       }
       body.has-snav {
         padding-top: var(--snav-height, 52px);
-        padding-bottom: var(--snav-height, 52px);
         box-sizing: border-box;
       }
       #app {
         display: flex;
-        height: 100%;
+        height: calc(100dvh - var(--snav-height, 52px));
         overflow: hidden;
         width: 100%;
         max-width: 100%;
