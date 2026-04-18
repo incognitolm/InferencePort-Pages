@@ -1817,16 +1817,7 @@ function textWithBullets(text) {
 }
 
 function processDisplay(text) {
-  let result = '', i = 0;
-  while (i < text.length) {
-    const start = text.indexOf('```svg', i);
-    if (start === -1) { result += text.slice(i); break; }
-    result += text.slice(i, start) + '[SVG Image]';
-    const end = text.indexOf('```', start + 6);
-    if (end === -1) break;
-    i = end + 3;
-  }
-  return result;
+  return text;
 }
 
 function updateSendBtn(streaming) {

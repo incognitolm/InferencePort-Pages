@@ -326,7 +326,8 @@ function buildMarkdownOptions() {
     const codeClass = `${highlightedCode ? 'hljs ' : ''}language-${displayLang}`;
 
     if (displayLang === 'svg') {
-      return `<div class="svg-render-block" data-svg="${escAttr(rawCode)}">
+      const encodedSvg = encodeURIComponent(rawCode);
+      return `<div class="svg-render-block" data-svg="${escAttr(encodedSvg)}">
         <img src="data:image/svg+xml,${encodeURIComponent(rawCode)}" style="max-width:100%;cursor:pointer;" alt="SVG">
       </div>`;
     }
@@ -621,10 +622,20 @@ export function attachCodeCopyListeners(container) {
 export function attachSvgPanelListeners(container) {
   container.querySelectorAll('.svg-render-block img').forEach(img => {
     img.addEventListener('click', () => {
-      const svgCode = img.closest('.svg-render-block')?.getAttribute('data-svg') || '';
+      const svgCode = decodeSvgPayload(img.closest('.svg-render-block')?.getAttribute('data-svg') || '');
       openSvgPanel(svgCode);
     });
   });
+}
+
+function decodeSvgPayload(payload) {
+  const value = String(payload || '');
+  if (!value) return '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function openSvgPanel(svgCode) {
