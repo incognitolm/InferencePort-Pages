@@ -229,6 +229,65 @@ function renderCodeWithColorSwatches(source) {
   return html;
 }
 
+function decorateCodeHtmlWithColorSwatches(markup) {
+  const html = String(markup || '');
+  if (!html || typeof document === 'undefined' || typeof NodeFilter === 'undefined') return html;
+
+  const template = document.createElement('template');
+  template.innerHTML = html;
+
+  const textNodes = [];
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    COLOR_TOKEN_RE.lastIndex = 0;
+    if (COLOR_TOKEN_RE.test(node.textContent || '')) textNodes.push(node);
+    node = walker.nextNode();
+  }
+
+  textNodes.forEach((textNode) => {
+    const text = textNode.textContent || '';
+    COLOR_TOKEN_RE.lastIndex = 0;
+    if (!COLOR_TOKEN_RE.test(text)) return;
+
+    COLOR_TOKEN_RE.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+
+    text.replace(COLOR_TOKEN_RE, (match, offset) => {
+      if (offset > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+      }
+
+      if (isCssColorValue(match)) {
+        const token = document.createElement('span');
+        token.className = 'code-color-token';
+        token.appendChild(document.createTextNode(match));
+
+        const swatch = document.createElement('span');
+        swatch.className = 'code-color-swatch';
+        swatch.setAttribute('aria-hidden', 'true');
+        swatch.innerHTML = `<svg viewBox="0 0 12 12" width="12" height="12" focusable="false"><rect x="1" y="1" width="10" height="10" rx="2.2" ry="2.2" fill="${escAttr(match)}" stroke="rgba(255,255,255,0.28)" stroke-width="1"/></svg>`;
+        token.appendChild(swatch);
+        fragment.appendChild(token);
+      } else {
+        fragment.appendChild(document.createTextNode(match));
+      }
+
+      lastIndex = offset + match.length;
+      return match;
+    });
+
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+
+    textNode.parentNode?.replaceChild(fragment, textNode);
+  });
+
+  return template.innerHTML;
+}
+
 function extractFenceLanguage(rawLang) {
   const token = String(rawLang || '').trim().split(/\s+/)[0] || '';
   return token
@@ -263,7 +322,7 @@ function buildMarkdownOptions() {
     const rawLang = typeof code === 'object' ? (code.lang || lang || 'code') : (lang || 'code');
     const displayLang = extractFenceLanguage(rawLang) || 'code';
     const highlightedCode = highlightCodeBlock(rawCode, rawLang);
-    const renderedCode = highlightedCode || renderCodeWithColorSwatches(rawCode);
+    const renderedCode = decorateCodeHtmlWithColorSwatches(highlightedCode || escHtml(rawCode));
     const codeClass = `${highlightedCode ? 'hljs ' : ''}language-${displayLang}`;
 
     if (displayLang === 'svg') {
